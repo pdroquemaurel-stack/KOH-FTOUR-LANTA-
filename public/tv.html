@@ -29,27 +29,66 @@ const scoreList=document.getElementById('scoreList');
 const resultsBlock=document.getElementById('resultsBlock');
 const bgMusic=document.getElementById('bgMusic');
 bgMusic.volume=0.5;
+let audioErrorSent=false;
+function reportAudioError(reason){
+  if(audioErrorSent) return;
+  audioErrorSent=true;
+  socket.emit('tv:audio_error',{reason:String(reason||'AUDIO_PLAY_BLOCKED')});
+}
 
 function phaseText(phase){
-  const map={LOBBY:'Lobby',INTRO:'Introduction',GAME_A:'Jeu A',RESULTS_A:'Résultats A',GAME_B:'Jeu B',RESULTS_B:'Résultats B',GAME_C:'Jeu C',RESULTS_C:'Résultats C',GAME_D:'Jeu D',RESULTS_D:'Résultats D',GAME_E:'Jeu E',RESULTS_E:'Résultats E',COUNCIL:'Conseil',COUNCIL_RESULT:'Résultat Conseil',FINAL:'Finale',FINAL_RESULT:'Résultat Finale',END:'Fin'};
+  const map={LOBBY:'Lobby',INTRO:'Introduction',GAME_A:'Jeu A',RESULTS_A:'Résultats A',GAME_B:'Jeu B',RESULTS_B:'Résultats B',GAME_C:'Jeu C',RESULTS_C:'Résultats C',GAME_D:'Jeu D',RESULTS_D:'Résultats D',GAME_E:'Jeu E',RESULTS_E:'Résultats E',COUNCIL:'Conseil',COUNCIL_RESULT:'Résultat Conseil',FINAL:'Finale',GAME_F:'Jeu F',FINAL_RESULT:'Résultat Finale',END:'Fin'};
   return map[phase]||phase;
 }
 function rulesFor(s){
-  if(s.phase==='GAME_A') return s.resultsShown?'Résultats affichés. Votes fermés.':'Vote pour un joueur. 1 vote unique.';
-  return 'POC centré sur le Jeu A';
+  const map={GAME_A:'Vote pour un joueur. 1 vote unique.',GAME_B:'Trouve la bonne réponse le plus vite possible.',GAME_C:'Devine le juste prix le plus proche.',GAME_D:'Donne tes 3 meilleures réponses.',GAME_E:'Choisis PARTAGER ou TRAHIR.',GAME_F:'Vise verticalement puis horizontalement.',COUNCIL:'Vote contre un joueur.',FINAL:'Parie puis réponds à la question finale.'};
+  if(map[s.phase]) return s.resultsShown?'Résultats affichés. Réponses fermées.':map[s.phase];
+  return '';
 }
 function questionFor(s){
   const g=s.gameState||{};
   if(s.phase==='GAME_A') return g.question||'Question en cours...';
-  return 'Le Ftour des Aventuriers';
+  if(s.phase==='GAME_B') return g.prompt||'Question en cours...';
+  if(s.phase==='GAME_C') return g.item?`Prix à estimer : ${g.item}`:'Question en cours...';
+  if(s.phase==='GAME_D') return g.theme?`Thème : ${g.theme}`:'Question en cours...';
+  if(s.phase==='GAME_F') return 'Vise bien ou fais toi des amis';
+  if(s.phase==='FINAL') return g.question||'Question finale';
+  return '';
 }
+function arrowsIcons(p){
+  const total=2;
+  const left=Math.max(0,Math.min(total,Number(p.arrows??2)));
+  const broken=Math.max(0,total-left);
+  return `<span class='tv-arrows'>${'<img src="/Visuels/archery_arrow_intact.png" alt="flèche intacte"/>' .repeat(left)}${'<img src="/Visuels/archery_arrow_broken.png" alt="flèche cassée"/>' .repeat(broken)}</span>`;
+}
+
 function renderResults(s){
   const r=s.gameState?.results;
-  if(!s.resultsShown||!r||r.game!=='A'){resultsBlock.style.display='none'; return;}
+  if(!s.resultsShown||!r){resultsBlock.style.display='none'; return;}
   const nameById = Object.fromEntries((s.rankings||[]).map((p)=>[p.playerId,p.name]));
-  const top3=(r.top3||[]).map((x,idx)=>`<li>#${idx+1} ${nameById[x.playerId]||x.playerId} (${x.votesCount})</li>`).join('');
-  const impacts=(s.rankings||[]).map((p)=>{const d=(r.impacts||{})[p.playerId]||0; const cls=d>0?'plus':(d<0?'minus':''); const text=d>0?`+${d}`:`${d}`; return `<li>${p.name} <span class='${cls}'>${text}</span></li>`}).join('');
-  resultsBlock.innerHTML=`<h3>Top 3 des plus cités</h3><ol>${top3||'<li>Aucun</li>'}</ol><h3>Impact points</h3><ul>${impacts}</ul>`;
+  if(r.game==='A'){
+    const top3=(r.top3||[]).map((x,idx)=>`<li>#${idx+1} ${nameById[x.playerId]||x.playerId} (${x.votesCount})</li>`).join('');
+    const impacts=(s.rankings||[]).map((p)=>{const d=(r.impacts||{})[p.playerId]||0; const cls=d>0?'plus':(d<0?'minus':''); const text=d>0?`+${d}`:`${d}`; return `<li>${p.name} <span class='${cls}'>${text}</span></li>`}).join('');
+    resultsBlock.innerHTML=`<h3>Top 3 des plus cités</h3><ol>${top3||'<li>Aucun</li>'}</ol><h3>Impact points</h3><ul>${impacts}</ul>`;
+  } else if(r.game==='F') {
+    const colors=r.playerColors||{};
+    const shots=(r.shots||[]).map((shot)=>{
+      const left=50 + (shot.x/2);
+      const top=50 - (shot.y/2);
+      const color=colors[shot.pid]||'#fff';
+      const name=nameById[shot.pid]||shot.pid;
+      return `<span class='archery-shot-wrap' style='left:${left}%;top:${top}%;color:${color}'><span class='archery-shot' style='background:${color}' title='${name}'></span><span class='archery-shot-name'>${name}</span></span>`;
+    }).join('');
+    const closest=nameById[r.closest]||r.closest||'-';
+    const farthest=nameById[r.farthest]||r.farthest||'-';
+    const breakInfo=r.breakChoice?`<p>${nameById[r.breakChoice.by]||r.breakChoice.by} casse une flèche de ${nameById[r.breakChoice.target]||r.breakChoice.target}</p>`:'';
+    const winner=r.winner?`<p><strong>🏆 Vainqueur: ${nameById[r.winner]||r.winner}</strong></p>`:'';
+    const noShot=(r.noShot||[]).length?`<p>❌ Sans tir (perdent 1 flèche): ${(r.noShot||[]).map((pid)=>nameById[pid]||pid).join(', ')}</p>`:'';
+    resultsBlock.innerHTML=`<h3>Résultats Tir à l'arc</h3><div class='archery-target'><img src='/Visuels/archery_target_board.png' alt='Cible'/>${shots}</div><p>🎯 Plus proche: <strong>${closest}</strong></p><p>💥 Plus éloigné: <strong>${farthest}</strong> (perd 1 flèche)</p>${noShot}${breakInfo}${winner}`;
+  } else {
+    const pretty=JSON.stringify(r,(k,v)=>nameById[v]||v,2);
+    resultsBlock.innerHTML=`<h3>Résultats ${r.game||''}</h3><pre>${pretty}</pre>`;
+  }
   resultsBlock.style.display='block';
 }
 
@@ -58,17 +97,18 @@ socket.on('game:state',(s)=>{
   bigQuestion.textContent=questionFor(s);
   bigRule.textContent=rulesFor(s);
   bgMusic.muted=!!s.tvMuted;
-  if(!bgMusic.muted){ bgMusic.play().catch(()=>{}); }
+  if(!bgMusic.muted){ bgMusic.play().catch((e)=>reportAudioError(e?.message||'AUDIO_PLAY_BLOCKED')); }
   renderResults(s);
   const nameById = Object.fromEntries((s.rankings||[]).map((p)=>[p.playerId,p.name]));
-  const answeredIds=(s.gameAProgress?.answeredPlayerIds||[]);
-  const pendingIds=(s.gameAProgress?.pendingPlayerIds||[]);
+  const answeredIds=(s.gameProgress?.answeredPlayerIds||s.gameAProgress?.answeredPlayerIds||[]);
+  const pendingIds=(s.gameProgress?.pendingPlayerIds||s.gameAProgress?.pendingPlayerIds||[]);
   const answered=answeredIds.map((id)=>nameById[id]||id);
   const pending=pendingIds.map((id)=>nameById[id]||id);
   answeredList.textContent = answered.length ? answered.join(', ') : '-';
   pendingList.textContent = pending.length ? pending.join(', ') : '-';
 
   playersBar.innerHTML=(s.rankings||[]).map(p=>`<span class='${answeredIds.includes(p.playerId)?'answered':''}'>${p.name}</span>`).join('');
-  scoreList.innerHTML=(s.rankings||[]).map(p=>`<li><span class='${answeredIds.includes(p.playerId)?'answered':''}'>${p.name}</span><strong>${p.score}</strong></li>`).join('');
+  scoreList.innerHTML=(s.rankings||[]).map(p=>`<li><span class='${answeredIds.includes(p.playerId)?'answered':''}'>${p.name} ${arrowsIcons(p)}</span><strong>${p.score}</strong></li>`).join('');
 });
+bgMusic.addEventListener('error',()=>reportAudioError('AUDIO_ELEMENT_ERROR'));
 </script></body></html>

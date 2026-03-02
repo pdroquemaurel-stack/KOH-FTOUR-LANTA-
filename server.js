@@ -31,7 +31,8 @@ function buildGameCatalog() {
     GAME_A: CONFIG.susceptibleQuestions.map((q, idx) => ({ index: idx, label: String(q || `Question ${idx + 1}`) })),
     GAME_B: CONFIG.blindtest.map((q, idx) => ({ index: idx, label: String(q?.prompt || `Question ${idx + 1}`) })),
     GAME_C: CONFIG.price.map((q, idx) => ({ index: idx, label: String(q?.item || `Question ${idx + 1}`) })),
-    GAME_D: CONFIG.top3.map((q, idx) => ({ index: idx, label: String(q?.theme || `Question ${idx + 1}`) }))
+    GAME_D: CONFIG.top3.map((q, idx) => ({ index: idx, label: String(q?.theme || `Question ${idx + 1}`) })),
+    GAME_F: [{ index: 0, label: 'Vise bien ou fais toi des amis' }]
   };
 }
 
@@ -59,7 +60,8 @@ const SESSION = {
   started: false,
   paused: false,
   resultsShown: false,
-  tvMuted: false
+  tvMuted: false,
+  lastTvAudioError: null
 };
 
 function now() { return Date.now(); }
@@ -71,15 +73,39 @@ function touch() { SESSION.updatedAt = nowIso(); }
 function phaseAllowsActions() { return SESSION.started && !SESSION.paused && !SESSION.answerLocked; }
 function activePlayers() { return [...SESSION.players.values()].filter((p) => !p.eliminated); }
 
-function gameAProgress() {
-  if (SESSION.phase !== 'GAME_A' || !SESSION.gameState || !SESSION.gameState.answers) return { answeredPlayerIds: [], pendingPlayerIds: [] };
+function gameProgress() {
+  if (!SESSION.phase?.startsWith('GAME_') && SESSION.phase !== 'COUNCIL' && SESSION.phase !== 'FINAL') return { answeredPlayerIds: [], pendingPlayerIds: [] };
+  if (!SESSION.gameState) return { answeredPlayerIds: [], pendingPlayerIds: [] };
   const alive = activePlayers().map((p) => p.playerId);
-  const answered = alive.filter((pid) => Boolean(SESSION.gameState.answers[pid]));
-  const pending = alive.filter((pid) => !SESSION.gameState.answers[pid]);
+  const answeredSet = new Set();
+
+  if (SESSION.gameState.answers) Object.keys(SESSION.gameState.answers).forEach((pid) => answeredSet.add(pid));
+  if (SESSION.gameState.choices) Object.keys(SESSION.gameState.choices).forEach((pid) => answeredSet.add(pid));
+  if (SESSION.gameState.votes) Object.keys(SESSION.gameState.votes).forEach((pid) => answeredSet.add(pid));
+  if (SESSION.phase === 'GAME_F' && SESSION.gameState.shots) {
+    Object.entries(SESSION.gameState.shots).forEach(([pid, shot]) => {
+      if (typeof shot?.vertical === 'number' && typeof shot?.horizontal === 'number') answeredSet.add(pid);
+    });
+  }
+
+  let trackable = SESSION.phase === 'FINAL' && Array.isArray(SESSION.gameState.finalists)
+    ? alive.filter((pid) => SESSION.gameState.finalists.includes(pid))
+    : alive;
+  if (SESSION.phase === 'GAME_F' && Array.isArray(SESSION.gameState.contenders)) {
+    trackable = alive.filter((pid) => SESSION.gameState.contenders.includes(pid));
+    if (SESSION.gameState.stage === 'BREAK_SELECT' && SESSION.gameState.closest) {
+      trackable = [SESSION.gameState.closest];
+      if (SESSION.gameState.breakChoice?.target) answeredSet.add(SESSION.gameState.closest);
+    }
+  }
+
+  const answered = trackable.filter((pid) => answeredSet.has(pid));
+  const pending = trackable.filter((pid) => !answeredSet.has(pid));
   return { answeredPlayerIds: answered, pendingPlayerIds: pending };
 }
 
 function ensurePlayerScore(p) { if (typeof p.score !== 'number') p.score = 0; }
+function ensurePlayerArrows(p) { if (typeof p.arrows !== 'number') p.arrows = 2; }
 
 function rankPlayers() {
   return [...SESSION.players.values()]
@@ -91,6 +117,7 @@ function rankPlayers() {
       status: p.status,
       ready: p.ready,
       score: p.score,
+      arrows: typeof p.arrows === 'number' ? p.arrows : 2,
       eliminated: !!p.eliminated,
       rank: 1 + arr.filter((x) => x.score > p.score).length,
       lastSeenAt: p.lastSeenAt
@@ -110,6 +137,7 @@ function buildState() {
     answerLocked: SESSION.answerLocked,
     resultsShown: SESSION.resultsShown,
     tvMuted: SESSION.tvMuted,
+    lastTvAudioError: SESSION.lastTvAudioError,
     councilMode: SESSION.councilMode,
     councilPenalty: SESSION.councilPenalty,
     immunityPlayerId: SESSION.immunityPlayerId,
@@ -117,7 +145,8 @@ function buildState() {
     playerCount: SESSION.players.size,
     rankings: rankPlayers(),
     gameState: SESSION.gameState,
-    gameAProgress: gameAProgress(),
+    gameAProgress: gameProgress(),
+    gameProgress: gameProgress(),
     history: SESSION.history.slice(-10),
     gameCatalog: buildGameCatalog()
   };
@@ -184,6 +213,13 @@ function initPhaseState(phase, options = {}) {
       else pairs.push([ids[i], null]);
     }
     SESSION.gameState = { key: 'GAME_E', round: 1, maxRounds: 3, pairs, choices: {}, completed: false, byeBonus: 2 };
+  } else if (phase === 'GAME_F') {
+    const contenders = activePlayers().map((p) => p.playerId).filter((pid) => {
+      const pl = SESSION.players.get(pid); ensurePlayerArrows(pl); return pl.arrows > 0;
+    });
+    const playerColors = {};
+    contenders.forEach((pid, idx) => { playerColors[pid] = ['#ff595e','#ffca3a','#8ac926','#1982c4','#6a4c93','#f72585','#4cc9f0','#ffd166'][idx % 8]; });
+    SESSION.gameState = { key: 'GAME_F', name: 'Vise bien ou fais toi des amis', stage: 'AIM', shots: {}, breakChoice: null, results: null, contenders, playerColors, completed: false };
   } else if (phase === 'COUNCIL') {
     SESSION.gameState = { key: 'COUNCIL', votes: {}, noSelfVote: true, completed: false };
   } else if (phase === 'FINAL') {
@@ -225,7 +261,19 @@ function resolveGameA() {
 function showResultsCurrentPhase() {
   if (SESSION.resultsShown) return;
   if (SESSION.phase === 'GAME_A') resolveGameA();
+  else if (SESSION.phase === 'GAME_B') resolveGameB();
+  else if (SESSION.phase === 'GAME_C') resolveGameC();
+  else if (SESSION.phase === 'GAME_D') resolveGameD();
+  else if (SESSION.phase === 'GAME_E') resolveGameERound();
+  else if (SESSION.phase === 'GAME_F') resolveGameF();
+  else if (SESSION.phase === 'COUNCIL') resolveCouncil();
+  else if (SESSION.phase === 'FINAL') resolveFinal();
   else return;
+  if (SESSION.phase === 'GAME_F' && SESSION.gameState?.stage === 'BREAK_SELECT') {
+    SESSION.answerLocked = false;
+    SESSION.resultsShown = true;
+    return;
+  }
   SESSION.answerLocked = true;
   SESSION.resultsShown = true;
 }
@@ -257,8 +305,10 @@ function resolveGameB() {
     p.score += 2;
     if (idx === 0) p.score += 1;
   });
-  SESSION.history.push({ at: nowIso(), game: 'B', correct, winners: entries.map(([pid]) => pid) });
-  publishResults({ game: 'B', correct, winners: entries.map(([pid]) => pid) });
+  const payload = { game: 'B', correct, winners: entries.map(([pid]) => pid) };
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), game: 'B', correct, winners: payload.winners });
+  publishResults(payload);
 }
 
 function resolveGameC() {
@@ -276,8 +326,10 @@ function resolveGameC() {
   });
   if (first && SESSION.players.get(first)) SESSION.players.get(first).score += 3;
   if (second && SESSION.players.get(second)) SESSION.players.get(second).score += 1;
+  const payload = { game: 'C', real, first, second, answers: valid };
+  SESSION.gameState.results = payload;
   SESSION.history.push({ at: nowIso(), game: 'C', real, first, second });
-  publishResults({ game: 'C', real, first, second, answers: valid });
+  publishResults(payload);
 }
 
 function resolveGameD() {
@@ -293,8 +345,10 @@ function resolveGameD() {
     if (hit >= 3) p.score += 2;
     results[pid] = hit;
   });
+  const payload = { game: 'D', expected, results };
+  SESSION.gameState.results = payload;
   SESSION.history.push({ at: nowIso(), game: 'D', expected, results });
-  publishResults({ game: 'D', expected, results });
+  publishResults(payload);
 }
 
 function resolveGameERound() {
@@ -313,8 +367,57 @@ function resolveGameERound() {
   Object.entries(gains).forEach(([pid, pts]) => {
     const p = SESSION.players.get(pid); if (!p) return; ensurePlayerScore(p); p.score += pts;
   });
+  const payload = { game: 'E', round: SESSION.gameState.round, gains, choices };
+  SESSION.gameState.results = payload;
   SESSION.history.push({ at: nowIso(), game: 'E', round: SESSION.gameState.round, gains });
-  publishResults({ game: 'E', round: SESSION.gameState.round, gains, choices });
+  publishResults(payload);
+}
+
+
+function resolveGameF() {
+  const contenders = (SESSION.gameState.contenders || []).filter((pid) => {
+    const p = SESSION.players.get(pid); if (!p) return false; ensurePlayerArrows(p); return p.arrows > 0;
+  });
+  const shots = SESSION.gameState.shots || {};
+  const firedEntries = [];
+  const noShot = [];
+  contenders.forEach((pid) => {
+    const shot = shots[pid] || {};
+    if (typeof shot.horizontal !== 'number' || typeof shot.vertical !== 'number') {
+      noShot.push(pid);
+      const p = SESSION.players.get(pid);
+      if (p) { ensurePlayerArrows(p); p.arrows = Math.max(0, p.arrows - 1); }
+      return;
+    }
+    const x = Math.max(-100, Math.min(100, Number(shot.horizontal || 0)));
+    const y = Math.max(-100, Math.min(100, Number(shot.vertical || 0)));
+    const distance = Math.sqrt((x * x) + (y * y));
+    firedEntries.push({ pid, x, y, distance });
+  });
+  if (!firedEntries.length) {
+    const alive = activePlayers().filter((pl) => { ensurePlayerArrows(pl); return pl.arrows > 0; });
+    const winner = alive.length === 1 ? alive[0].playerId : null;
+    const payloadNoShot = { game: 'F', stage: 'AIM', shots: [], closest: null, farthest: null, noShot, winner, playerColors: SESSION.gameState.playerColors || {} };
+    SESSION.gameState.stage = 'AIM';
+    SESSION.gameState.results = payloadNoShot;
+    if (!winner) SESSION.gameState.shots = {};
+    publishResults(payloadNoShot);
+    return;
+  }
+  firedEntries.sort((a, b) => a.distance - b.distance);
+  const closest = firedEntries[0]?.pid || null;
+  const farthest = firedEntries[firedEntries.length - 1]?.pid || null;
+  if (farthest && SESSION.players.get(farthest)) {
+    ensurePlayerArrows(SESSION.players.get(farthest));
+    SESSION.players.get(farthest).arrows = Math.max(0, SESSION.players.get(farthest).arrows - 1);
+  }
+  const payload = { game: 'F', stage: 'BREAK_SELECT', shots: firedEntries, closest, farthest, noShot, playerColors: SESSION.gameState.playerColors || {} };
+  SESSION.gameState.stage = 'BREAK_SELECT';
+  SESSION.gameState.results = payload;
+  SESSION.gameState.closest = closest;
+  SESSION.gameState.farthest = farthest;
+  SESSION.history.push({ at: nowIso(), game: 'F', closest, farthest, noShot, shots: firedEntries });
+  publishResults(payload);
 }
 
 function resolveCouncil() {
@@ -331,8 +434,10 @@ function resolveCouncil() {
       else p.score -= SESSION.councilPenalty;
     }
   }
-  SESSION.history.push({ at: nowIso(), council: { tally, loser, mode: SESSION.councilMode, immunity: SESSION.immunityPlayerId } });
-  publishResults({ game: 'COUNCIL', tally, loser, mode: SESSION.councilMode, immunity: SESSION.immunityPlayerId });
+  const payload = { game: 'COUNCIL', tally, loser, mode: SESSION.councilMode, immunity: SESSION.immunityPlayerId };
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), council: payload });
+  publishResults(payload);
 }
 
 function resolveFinal() {
@@ -347,8 +452,10 @@ function resolveFinal() {
     else p.score -= bet;
   });
   const podium = rankPlayers().slice(0, 3).map((p) => p.playerId);
+  const payload = { game: 'FINAL', winners, podium };
+  SESSION.gameState.results = payload;
   SESSION.history.push({ at: nowIso(), game: 'FINAL', winners, podium });
-  publishResults({ game: 'FINAL', winners, podium });
+  publishResults(payload);
 }
 
 function sendJson(res, status, payload) {
@@ -429,11 +536,18 @@ io.on('connection', (socket) => {
     else if (command === 'TV_SCREEN') { if (TV_SCREENS.includes(payload?.screen)) SESSION.phase = payload.screen; }
     else if (command === 'LAUNCH_GAME') {
       const game = String(payload?.game || 'GAME_A');
-      const allowedGames = ['GAME_A', 'GAME_B', 'GAME_C', 'GAME_D'];
+      const allowedGames = ['GAME_A', 'GAME_B', 'GAME_C', 'GAME_D', 'GAME_F'];
       if (!allowedGames.includes(game)) return ack?.({ ok: false, error: 'UNSUPPORTED_GAME' });
       SESSION.started = true;
       setPhase(game);
       initPhaseState(game, { index: Number(payload?.questionIndex || 0) });
+    }
+    else if (command === 'RESTORE_ARROW') {
+      const pid = String(payload?.playerId || '');
+      const p = SESSION.players.get(pid);
+      if (!p) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
+      ensurePlayerArrows(p);
+      p.arrows = Math.min(2, p.arrows + 1);
     }
     else if (command === 'UPDATE_SCORE') {
       const pid = String(payload?.playerId || '');
@@ -468,8 +582,8 @@ io.on('connection', (socket) => {
     const token = String(reconnectToken || crypto.randomUUID());
     const existing = SESSION.players.get(pid);
     if (existing && existing.reconnectToken !== token) return ack?.({ ok: false, error: 'INVALID_RECONNECT_TOKEN' });
-    const p = existing || { playerId: pid, reconnectToken: token, name: safeName(name), animal: safeAnimal(animal), ready: false, status: 'CONNECTED', score: 0, eliminated: false, lastSeenAt: nowIso() };
-    p.name = safeName(name || p.name); p.animal = safeAnimal(animal || p.animal); p.status = 'CONNECTED'; p.lastSeenAt = nowIso();
+    const p = existing || { playerId: pid, reconnectToken: token, name: safeName(name), animal: safeAnimal(animal), ready: false, status: 'CONNECTED', score: 0, arrows: 2, eliminated: false, lastSeenAt: nowIso() };
+    p.name = safeName(name || p.name); p.animal = safeAnimal(animal || p.animal); p.status = 'CONNECTED'; ensurePlayerArrows(p); p.lastSeenAt = nowIso();
     SESSION.players.set(pid, p); SESSION.socketsByPlayerId.set(socket.id, pid); socket.data.playerId = pid;
     touch();
     broadcastState();
@@ -508,6 +622,51 @@ io.on('connection', (socket) => {
     } else if (SESSION.phase === 'GAME_E' && type === 'E_CHOICE') {
       if (SESSION.gameState.choices[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
       SESSION.gameState.choices[pid] = payload?.choice === 'BETRAY' ? 'BETRAY' : 'SHARE';
+    } else if (SESSION.phase === 'GAME_F' && type === 'F_AIM_VERTICAL') {
+      ensurePlayerArrows(p);
+      if (p.arrows <= 0) return ack?.({ ok: false, error: 'NO_ARROWS_LEFT' });
+      const value = Number(payload?.value);
+      if (Number.isNaN(value)) return ack?.({ ok: false, error: 'INVALID_VALUE' });
+      SESSION.gameState.shots[pid] = SESSION.gameState.shots[pid] || {};
+      SESSION.gameState.shots[pid].vertical = Math.max(-100, Math.min(100, value));
+    } else if (SESSION.phase === 'GAME_F' && type === 'F_AIM_HORIZONTAL') {
+      ensurePlayerArrows(p);
+      if (p.arrows <= 0) return ack?.({ ok: false, error: 'NO_ARROWS_LEFT' });
+      const value = Number(payload?.value);
+      if (Number.isNaN(value)) return ack?.({ ok: false, error: 'INVALID_VALUE' });
+      SESSION.gameState.shots[pid] = SESSION.gameState.shots[pid] || {};
+      SESSION.gameState.shots[pid].horizontal = Math.max(-100, Math.min(100, value));
+    } else if (SESSION.phase === 'GAME_F' && type === 'F_BREAK_TARGET') {
+      ensurePlayerArrows(p);
+      if (p.arrows <= 0) return ack?.({ ok: false, error: 'NO_ARROWS_LEFT' });
+      if (SESSION.gameState.stage !== 'BREAK_SELECT') return ack?.({ ok: false, error: 'NOT_IN_BREAK_STAGE' });
+      if (pid !== SESSION.gameState.closest) return ack?.({ ok: false, error: 'NOT_BREAKER' });
+      const target = String(payload?.targetPlayerId || '');
+      if (!target || target === pid) return ack?.({ ok: false, error: 'INVALID_TARGET' });
+      const targetPlayer = SESSION.players.get(target);
+      if (!targetPlayer) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
+      ensurePlayerArrows(targetPlayer);
+      targetPlayer.arrows = Math.max(0, targetPlayer.arrows - 1);
+      SESSION.gameState.breakChoice = { by: pid, target };
+      const alive = activePlayers().filter((pl) => {
+        ensurePlayerArrows(pl);
+        return pl.arrows > 0;
+      });
+      const winner = alive.length === 1 ? alive[0].playerId : null;
+      const payloadResult = { ...(SESSION.gameState.results || { game: 'F' }), breakChoice: SESSION.gameState.breakChoice, winner };
+      SESSION.gameState.results = payloadResult;
+      SESSION.history.push({ at: nowIso(), game: 'F', breakChoice: SESSION.gameState.breakChoice, winner });
+      publishResults(payloadResult);
+      if (winner) {
+        SESSION.gameState.completed = true;
+      } else {
+        const contenders = alive.map((pl) => pl.playerId);
+        SESSION.gameState.contenders = contenders;
+        SESSION.gameState.shots = {};
+        SESSION.gameState.stage = 'AIM';
+      }
+      SESSION.resultsShown = false;
+      SESSION.answerLocked = false;
     } else if (SESSION.phase === 'COUNCIL' && type === 'COUNCIL_VOTE') {
       if (SESSION.gameState.votes[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
       const target = payload?.targetPlayerId;
@@ -523,6 +682,15 @@ io.on('connection', (socket) => {
     touch();
     broadcastState();
     ack?.({ ok: true, receivedAt: nowIso() });
+  });
+
+  socket.on('tv:audio_error', ({ reason }, ack) => {
+    const error = { at: nowIso(), reason: String(reason || 'AUDIO_PLAYBACK_FAILED').slice(0, 180) };
+    SESSION.lastTvAudioError = error;
+    if (SESSION.adminSocketId) io.to(SESSION.adminSocketId).emit('admin:tv_audio_error', error);
+    touch();
+    broadcastState();
+    ack?.({ ok: true });
   });
 
   socket.on('disconnect', () => {
