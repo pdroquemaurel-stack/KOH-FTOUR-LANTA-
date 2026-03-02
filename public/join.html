@@ -1,75 +1,23 @@
-<!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Aventurier • Koh Lanta</title>
-  <link rel="stylesheet" href="/style.css" />
-</head>
-<body>
-  <div class="container">
-    <h1 class="title">🌴 Entrée Aventurier</h1>
-    <section id="form" class="panel">
-      <div class="grid">
-        <input id="name" placeholder="Ton nom" maxlength="24" />
-        <input id="animal" placeholder="Ton animal fétiche" maxlength="24" />
-        <button id="join">Rejoindre la tribu</button>
-      </div>
-    </section>
-
-    <section id="ok" class="panel mt" style="display:none">
-      <h2>Bienvenue dans la tribu ✅</h2>
-      <p id="me"></p>
-      <p id="hint" class="small">En attente...</p>
-      <button id="ready" class="secondary">Je suis prêt</button>
-    </section>
-  </div>
-
-  <script src="/socket.io/socket.io.js"></script>
-  <script>
-    const socket = io({ transports: ['websocket','polling'] });
-    const byId = (id) => document.getElementById(id);
-    let current = { playerId: '', reconnectToken: '', ready: false };
-    const KEY = 'kla_singleton_player';
-
-    function save(d){ localStorage.setItem(KEY, JSON.stringify(d)); }
-    function load(){ try { return JSON.parse(localStorage.getItem(KEY)||'null'); } catch { return null; } }
-
-    function setJoined(player) {
-      current.playerId = player.playerId;
-      current.reconnectToken = player.reconnectToken;
-      byId('form').style.display = 'none';
-      byId('ok').style.display = '';
-      byId('me').textContent = `${player.name} • Animal fétiche: ${player.animal}`;
-      save({ playerId: player.playerId, reconnectToken: player.reconnectToken, name: player.name, animal: player.animal });
-    }
-
-    byId('join').onclick = () => {
-      const sess = load();
-      const name = byId('name').value.trim() || sess?.name || 'Aventurier';
-      const animal = byId('animal').value.trim() || sess?.animal || 'Tigre';
-      socket.emit('room:join', { playerId: sess?.playerId, reconnectToken: sess?.reconnectToken, name, animal }, (res) => {
-        if (!res?.ok) return alert(res?.error || 'Impossible de rejoindre');
-        setJoined(res.player);
-      });
-    };
-
-    byId('ready').onclick = () => {
-      current.ready = !current.ready;
-      socket.emit('player:update', { playerId: current.playerId, ready: current.ready });
-      byId('ready').textContent = current.ready ? 'Prêt ✅' : 'Je suis prêt';
-    };
-
-    socket.on('tv:state', (s) => {
-      byId('hint').textContent = s.screen === 'LOBBY' ? 'Lobby...' : s.screen === 'WAITING' ? 'Attente collective...' : 'Épreuve à venir...';
-    });
-
-    const sess = load();
-    if (sess?.playerId && sess?.reconnectToken) {
-      socket.emit('room:join', { playerId: sess.playerId, reconnectToken: sess.reconnectToken, name: sess.name, animal: sess.animal }, (res) => {
-        if (res?.ok) setJoined(res.player);
-      });
-    }
-  </script>
-</body>
-</html>
+<!doctype html><html lang="fr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Aventurier</title><link rel="stylesheet" href="/style.css"/></head><body>
+<div class="container"><h1 class="title">🌴 Aventurier</h1>
+<section id="form" class="panel"><div class="grid"><input id="name" placeholder="Nom" maxlength="24"/><input id="animal" placeholder="Animal fétiche" maxlength="24"/><button id="join">Rejoindre</button></div></section>
+<section id="play" class="panel mt" style="display:none"><h2 id="me"></h2><p id="phase"></p><div id="action"></div><p id="ack" class="small"></p></section></div>
+<script src="/socket.io/socket.io.js"></script><script>
+const socket=io({transports:['websocket','polling']}); const KEY='kla_singleton_player_v2'; let me=null,st=null;
+const byId=id=>document.getElementById(id); const save=v=>localStorage.setItem(KEY,JSON.stringify(v)); const load=()=>{try{return JSON.parse(localStorage.getItem(KEY)||'null')}catch{return null}};
+function joined(p){me=p;byId('form').style.display='none';byId('play').style.display='';byId('me').textContent=`${p.name} (${p.animal})`}
+function send(type,payload){socket.emit('game:action',{type,payload},(r)=>byId('ack').textContent=r?.ok?'✅ Réponse envoyée':`❌ ${r?.error||'Erreur'}`)}
+function playerList(){return (st?.rankings||[]).filter(p=>!p.eliminated).map(p=>`<option value='${p.playerId}'>${p.name}</option>`).join('')}
+function renderAction(){ if(!st||!me)return; const phase=st.phase; byId('phase').textContent=`Phase: ${phase}`; const a=byId('action'); const gs=st.gameState||{};
+if(phase==='GAME_A'){a.innerHTML=`<select id='t'>${playerList()}</select><button id='s'>Voter</button>`;byId('s').onclick=()=>send('A_VOTE',{targetPlayerId:byId('t').value});}
+else if(phase==='GAME_B'){a.innerHTML=`<input id='ans' placeholder='Ta réponse'/><button id='s'>Envoyer</button>`;byId('s').onclick=()=>send('B_ANSWER',{answer:byId('ans').value});}
+else if(phase==='GAME_C'){a.innerHTML=`<input id='g' type='number' placeholder='Ton prix'/><button id='s'>Valider</button>`;byId('s').onclick=()=>send('C_GUESS',{value:Number(byId('g').value)});}
+else if(phase==='GAME_D'){a.innerHTML=`<input id='a1' placeholder='Réponse 1'/><input id='a2' placeholder='Réponse 2'/><input id='a3' placeholder='Réponse 3'/><button id='s'>Valider Top3</button>`;byId('s').onclick=()=>send('D_TOP3',{answers:[byId('a1').value,byId('a2').value,byId('a3').value]});}
+else if(phase==='GAME_E'){a.innerHTML=`<div class='grid grid-2'><button id='sh'>Partager</button><button id='be' class='danger'>Trahir</button></div>`;byId('sh').onclick=()=>send('E_CHOICE',{choice:'SHARE'});byId('be').onclick=()=>send('E_CHOICE',{choice:'BETRAY'});}
+else if(phase==='COUNCIL'){a.innerHTML=`<select id='v'>${playerList()}</select><button id='s'>Voter secret</button>`;byId('s').onclick=()=>send('COUNCIL_VOTE',{targetPlayerId:byId('v').value});}
+else if(phase==='FINAL'){const finalist=(gs.finalists||[]).includes(me.playerId); if(!finalist){a.innerHTML='<p>Tu n\'es pas finaliste.</p>';return;} a.innerHTML=`<input id='bet' type='number' min='0' max='5' placeholder='Mise 0-5'/><input id='ans' placeholder='Réponse finale'/><button id='s'>Envoyer finale</button>`;byId('s').onclick=()=>send('FINAL_BET_ANSWER',{bet:Number(byId('bet').value),answer:byId('ans').value});}
+else a.innerHTML='<p>En attente de la prochaine épreuve...</p>';}
+byId('join').onclick=()=>{const s=load();socket.emit('room:join',{playerId:s?.playerId,reconnectToken:s?.reconnectToken,name:byId('name').value||s?.name,animal:byId('animal').value||s?.animal},(r)=>{if(!r?.ok)return alert(r?.error||'Impossible');save({playerId:r.player.playerId,reconnectToken:r.player.reconnectToken,name:r.player.name,animal:r.player.animal});joined(r.player);renderAction();});};
+const s=load();if(s?.playerId&&s?.reconnectToken){socket.emit('room:join',s,(r)=>{if(r?.ok){joined(r.player);}})}
+socket.on('game:state',(s0)=>{st=s0;renderAction();});
+</script></body></html>

@@ -1,71 +1,30 @@
-<!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Admin • Koh Lanta</title>
-  <link rel="stylesheet" href="/style.css" />
-</head>
-<body>
-  <div class="container">
-    <h1 class="title">🛡️ Console Admin</h1>
-    <section id="auth" class="panel">
-      <input id="pwd" type="password" placeholder="Mot de passe Admin" />
-      <button id="login" class="mt">Connexion</button>
-    </section>
-
-    <section id="dash" class="panel mt" style="display:none">
-      <div class="small">Session unique : GLOBAL</div>
-      <div class="flex mt">
-        <button id="lockBtn" class="secondary">Verrouiller</button>
-        <button id="resetBtn" class="danger">Reset session</button>
-        <a href="/tv" target="_blank" style="width:100%"><button>Ouvrir l'écran TV</button></a>
-      </div>
-      <div class="grid grid-2 mt">
-        <button class="tv" data-s="LOBBY">TV Lobby</button>
-        <button class="tv secondary" data-s="WAITING">TV Attente</button>
-        <button class="tv secondary" data-s="PLACEHOLDER">TV Placeholder</button>
-      </div>
-      <h3 class="mt">Aventuriers</h3>
-      <ul id="roster" class="roster"></ul>
-    </section>
-  </div>
-
-  <script src="/socket.io/socket.io.js"></script>
-  <script>
-    const socket = io({ transports: ['websocket','polling'] });
-    let state = null;
-    const byId = (id) => document.getElementById(id);
-
-    function render(s) {
-      state = s;
-      byId('lockBtn').textContent = s.locked ? 'Déverrouiller' : 'Verrouiller';
-      const roster = byId('roster');
-      roster.innerHTML = '';
-      s.players.forEach((p) => {
-        const li = document.createElement('li');
-        li.innerHTML = `<div><strong>${p.name}</strong> <span class='small'>(${p.animal})</span></div>
-          <div class='flex'><span class='status-chip ${p.status==='CONNECTED'?'connected':'disconnected'}'>${p.status}</span>
-          <button data-k='${p.playerId}' class='danger' style='width:auto;padding:8px 10px'>Kick</button></div>`;
-        roster.appendChild(li);
-      });
-      roster.querySelectorAll('[data-k]').forEach((b) => b.onclick = () => socket.emit('admin:kick', { playerId: b.dataset.k }));
-    }
-
-    byId('login').onclick = () => {
-      socket.emit('admin:auth', { password: byId('pwd').value }, (res) => {
-        if (!res?.ok) return alert('Mot de passe incorrect');
-        byId('auth').style.display = 'none';
-        byId('dash').style.display = '';
-        render(res.state);
-      });
-    };
-
-    byId('lockBtn').onclick = () => socket.emit('admin:lock', { locked: !state.locked });
-    byId('resetBtn').onclick = () => confirm('Reset ?') && socket.emit('admin:reset', {});
-    document.querySelectorAll('.tv').forEach((b) => b.onclick = () => socket.emit('tv:screen', { screen: b.dataset.s }));
-
-    socket.on('tv:state', render);
-  </script>
-</body>
-</html>
+<!doctype html><html lang="fr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Admin</title><link rel="stylesheet" href="/style.css"/></head><body>
+<div class="container"><h1 class="title">🛡️ Admin • Game Master</h1>
+<section id="auth" class="panel"><input id="pwd" type="password" placeholder="Mot de passe Admin"/><button id="login" class="mt">Connexion</button></section>
+<section id="dash" class="panel mt" style="display:none">
+<div class="grid grid-2">
+<div class="panel"><h3>Contrôles partie</h3><div class="grid">
+<button data-c="START">Start</button><button data-c="NEXT" class="secondary">Next</button><button data-c="PAUSE" class="secondary">Pause</button><button data-c="RESUME" class="secondary">Resume</button><button data-c="SKIP" class="secondary">Skip</button><button data-c="RESET_PHASE" class="secondary">Reset Phase</button><button data-c="FORCE_END" class="danger">Force End</button></div></div>
+<div class="panel"><h3>Verrous & Conseil</h3><div class="grid">
+<button id="lockToggle" class="secondary">Lock answers</button>
+<select id="mode"><option value="ELIMINATION">Conseil: Elimination</option><option value="PENALTY">Conseil: Pénalité</option></select>
+<select id="immunity"></select>
+<button id="setImmunity">Donner immunité</button></div></div></div>
+<div class="panel mt"><h3>Phase: <span id="phase"></span> • Timer: <span id="timer"></span></h3></div>
+<div class="panel mt"><h3>Classement live</h3><ul id="roster" class="roster"></ul></div>
+</section></div>
+<script src="/socket.io/socket.io.js"></script><script>
+const socket=io({transports:['websocket','polling']});let state=null;const byId=id=>document.getElementById(id);
+function cmd(command,payload){socket.emit('admin:command',{command,payload});}
+function render(s){state=s;byId('phase').textContent=s.phase;byId('timer').textContent=s.phaseTimer?.remainingMs?Math.ceil(s.phaseTimer.remainingMs/1000)+'s':'-';byId('lockToggle').textContent=s.answerLocked?'Unlock answers':'Lock answers';
+const roster=byId('roster');roster.innerHTML='';s.rankings.forEach(p=>{const li=document.createElement('li');li.innerHTML=`<div>#${p.rank} <strong>${p.name}</strong> <span class='small'>(${p.animal})</span> ${p.eliminated?'🪦':''}</div><div>${p.score} pts</div>`;roster.appendChild(li);});
+const imm=byId('immunity');imm.innerHTML='<option value="">Aucune immunité</option>'+s.rankings.filter(p=>!p.eliminated).map(p=>`<option value="${p.playerId}" ${s.immunityPlayerId===p.playerId?'selected':''}>${p.name}</option>`).join('');
+byId('mode').value=s.councilMode;
+}
+byId('login').onclick=()=>socket.emit('admin:auth',{password:byId('pwd').value},(r)=>{if(!r?.ok)return alert('Mot de passe incorrect');byId('auth').style.display='none';byId('dash').style.display='';render(r.state);});
+document.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>cmd(b.dataset.c));
+byId('lockToggle').onclick=()=>cmd('LOCK_ANSWERS',{locked:!state.answerLocked});
+byId('setImmunity').onclick=()=>cmd('SET_IMMUNITY',{playerId:byId('immunity').value||null});
+byId('mode').onchange=()=>cmd('SET_COUNCIL_MODE',{mode:byId('mode').value});
+socket.on('game:state',render);socket.on('admin:revoked',()=>alert('Session admin reprise ailleurs'));
+</script></body></html>

@@ -1,0 +1,5 @@
+[
+  {"prompt":"(Fallback) Quel artiste chante: 'Imagine all the people'?","answer":"john lennon","options":["Queen","John Lennon","Stromae","Adele"]},
+  {"prompt":"(Fallback) Capitale du Maroc ?","answer":"rabat","options":["Casablanca","Rabat","Marrakech","Fès"]},
+  {"prompt":"(Fallback) Combien de continents ?","answer":"7","options":["5","6","7","8"]}
+]
