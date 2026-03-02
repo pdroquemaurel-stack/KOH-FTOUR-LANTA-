@@ -1,35 +1,29 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <title>Party Buzzer 3.0 - Accueil</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Koh Lanta • Le Ftour des Aventuriers</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <main class="container home-page">
-    <header class="home-hero card">
-      <h1>Party Buzzer 3.0</h1>
-      <p>Jeu d'animation multi‑joueurs : l'admin pilote la partie sur TV, les joueurs répondent depuis leur téléphone.</p>
-    </header>
+  <div class="container">
+    <h1 class="title flicker">Koh Lanta — Le Ftour des Aventuriers</h1>
+    <p class="subtitle">Backbone multi-écrans : TV, Admin et Joueurs mobiles.</p>
 
-    <section class="home-grid" aria-label="Parcours principal">
-      <article class="card home-choice admin">
-        <div class="home-icon" aria-hidden="true">🎥</div>
-        <h2>Créer / Gérer une salle</h2>
-        <p>Mode Admin : crée la salle, affiche le QR code, lance les manches et gère les scores en direct.</p>
-        <a href="/tv.html?new=1">Ouvrir l'écran TV / Admin</a>
-      </article>
+    <div class="grid grid-2 mt">
+      <section class="panel">
+        <h2>🎛️ Admin</h2>
+        <p>Crée une room, contrôle la session et pilote l’écran TV.</p>
+        <a href="/admin/NEW"><button>Ouvrir l’espace Admin</button></a>
+      </section>
 
-      <article class="card home-choice player">
-        <div class="home-icon" aria-hidden="true">📱</div>
-        <h2>Rejoindre une salle</h2>
-        <p>Mode Joueur : entre le code de salle (ou scanne le QR), choisis ton équipe et attends le lancement.</p>
-        <a href="/join">Rejoindre depuis mon téléphone</a>
-      </article>
-    </section>
-
-    <p class="hint">Astuce: depuis un téléphone, utilisez l'IP locale du PC (ex: http://192.168.x.x:3000).</p>
-  </main>
+      <section class="panel">
+        <h2>📱 Joueur</h2>
+        <p>Rejoins une room avec un code ou un QR code.</p>
+        <a href="/join"><button class="secondary">Rejoindre une room</button></a>
+      </section>
+    </div>
+  </div>
 </body>
 </html>
