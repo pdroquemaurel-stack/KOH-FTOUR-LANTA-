@@ -147,12 +147,10 @@ button.secondary { background: linear-gradient(180deg, #6c7c66, #42503f); color:
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto auto auto;
+  grid-template-rows: minmax(0, 1fr) auto auto auto;
   gap: clamp(8px, 1.2vh, 16px);
   overflow: hidden;
-  padding-top: 400px;
 }
-.tv-series-info { text-align:center; font-weight:800; font-size:clamp(1rem,2vw,1.6rem); color:#ffd89d; }
 .tv-question {
   width: 100%;
   min-height: 0;
@@ -186,7 +184,6 @@ button.secondary { background: linear-gradient(180deg, #6c7c66, #42503f); color:
 .tv-scoreboard li { display:flex; justify-content:space-between; gap:10px; align-items:center; }
 .tv-scoreboard li strong { font-size: clamp(1.4rem,2.4vw,2.2rem); }
 .tv-scoreboard .answered { color: var(--answered); font-weight: 800; }
-.tv-player-avatar { width: 28px; height: 28px; object-fit: contain; margin-right: 8px; vertical-align: middle; }
 
 
 button.danger { background: linear-gradient(180deg, #f07a7a, #b03232); color: #fff3f3; }
@@ -203,12 +200,6 @@ button.danger { background: linear-gradient(180deg, #f07a7a, #b03232); color: #f
 .tv-free-answer-card.validated { background: rgba(42,178,84,.35); border-color: rgba(94,230,145,.85); }
 .tv-free-answer-name { color:#b8b8b8; font-size:.9rem; margin-bottom:4px; }
 .tv-free-answer-text { color:#fff; font-size:1.15rem; font-weight:700; }
-.price-line-wrap{position:relative;margin:1rem 0 1.8rem;height:120px;}
-.price-line{position:absolute;left:0;right:0;top:50%;height:4px;background:rgba(255,255,255,.35);border-radius:4px;}
-.price-dot,.price-real{position:absolute;top:50%;transform:translate(-50%,-50%);text-align:center;}
-.price-dot span{color:#7fd0ff;font-size:1.2rem;}
-.price-real span{color:#ff3b30;font-size:1.4rem;}
-.price-dot small,.price-real small{display:block;white-space:nowrap;font-size:.75rem;}
 
 
 .answer-validated {
@@ -294,8 +285,7 @@ body.join-page.archery-active .archery-arrows-bottom img { width: clamp(30px, 8v
 }
 
 @media (max-height: 820px) {
-  .tv-series-info { text-align:center; font-weight:800; font-size:clamp(1rem,2vw,1.6rem); color:#ffd89d; }
-.tv-question { font-size: clamp(1.1rem, 2.9vw, 2.6rem); }
+  .tv-question { font-size: clamp(1.1rem, 2.9vw, 2.6rem); }
   .tv-rule { font-size: clamp(.8rem, 1.45vw, 1rem); max-height: 8vh; }
   .tv-players-bar { max-height: 12vh; }
   .tv-results { max-height: 26vh; }
@@ -304,8 +294,7 @@ body.join-page.archery-active .archery-arrows-bottom img { width: clamp(30px, 8v
 
 @media (max-height: 680px) {
   .tv-layout { gap: 8px; padding: 8px; }
-  .tv-series-info { text-align:center; font-weight:800; font-size:clamp(1rem,2vw,1.6rem); color:#ffd89d; }
-.tv-question { font-size: clamp(1rem, 2.4vw, 2.1rem); }
+  .tv-question { font-size: clamp(1rem, 2.4vw, 2.1rem); }
   .tv-rule { max-height: 7vh; }
   .tv-results { max-height: 22vh; }
   .tv-results.archery-results .archery-target { width: min(420px, 46vh, 62vw); }
