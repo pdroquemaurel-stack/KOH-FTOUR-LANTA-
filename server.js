@@ -64,8 +64,7 @@ const SESSION = {
   tvMuted: false,
   lastTvAudioError: null,
   previewGame: null,
-  lastAward: null,
-  joinSeqCounter: 0
+  lastAward: null
 };
 
 let gameBTimer = null;
@@ -130,7 +129,7 @@ function ensurePlayerArrows(p) { if (typeof p.arrows !== 'number') p.arrows = 2;
 
 function rankPlayers() {
   return [...SESSION.players.values()]
-    .sort((a, b) => (b.score - a.score) || ((a.joinSeq ?? 0) - (b.joinSeq ?? 0)) || a.name.localeCompare(b.name))
+    .sort((a, b) => (b.score - a.score) || a.name.localeCompare(b.name))
     .map((p, idx, arr) => ({
       playerId: p.playerId,
       name: p.name,
@@ -407,7 +406,6 @@ function resetSession() {
   SESSION.paused = false;
   SESSION.previewGame = null;
   SESSION.lastAward = null;
-  SESSION.joinSeqCounter = 0;
 }
 
 function resolveGameB() {
@@ -759,7 +757,7 @@ io.on('connection', (socket) => {
     const token = String(reconnectToken || crypto.randomUUID());
     const existing = SESSION.players.get(pid);
     if (existing && existing.reconnectToken !== token) return ack?.({ ok: false, error: 'INVALID_RECONNECT_TOKEN' });
-    const p = existing || { playerId: pid, reconnectToken: token, name: safeName(name), animal: safeAnimal(animal), ready: false, status: 'CONNECTED', score: 0, arrows: 2, eliminated: false, lastSeenAt: nowIso(), joinSeq: ++SESSION.joinSeqCounter };
+    const p = existing || { playerId: pid, reconnectToken: token, name: safeName(name), animal: safeAnimal(animal), ready: false, status: 'CONNECTED', score: 0, arrows: 2, eliminated: false, lastSeenAt: nowIso() };
     p.name = safeName(name || p.name); p.animal = safeAnimal(animal || p.animal); p.status = 'CONNECTED'; ensurePlayerArrows(p); p.lastSeenAt = nowIso();
     SESSION.players.set(pid, p); SESSION.socketsByPlayerId.set(socket.id, pid); socket.data.playerId = pid;
     touch();
