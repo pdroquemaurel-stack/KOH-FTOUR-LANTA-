@@ -26,6 +26,15 @@ const CONFIG = {
   top3: readConfig('top3_themes.json', [])
 };
 
+function buildGameCatalog() {
+  return {
+    GAME_A: CONFIG.susceptibleQuestions.map((q, idx) => ({ index: idx, label: String(q || `Question ${idx + 1}`) })),
+    GAME_B: CONFIG.blindtest.map((q, idx) => ({ index: idx, label: String(q?.prompt || `Question ${idx + 1}`) })),
+    GAME_C: CONFIG.price.map((q, idx) => ({ index: idx, label: String(q?.item || `Question ${idx + 1}`) })),
+    GAME_D: CONFIG.top3.map((q, idx) => ({ index: idx, label: String(q?.theme || `Question ${idx + 1}`) }))
+  };
+}
+
 const FLOW = ['LOBBY', 'INTRO', 'GAME_A', 'RESULTS_A', 'GAME_B', 'RESULTS_B', 'GAME_C', 'RESULTS_C', 'GAME_D', 'RESULTS_D', 'GAME_E', 'RESULTS_E', 'COUNCIL', 'COUNCIL_RESULT', 'FINAL', 'FINAL_RESULT', 'END'];
 const TV_SCREENS = ['LOBBY', 'WAITING', 'PLACEHOLDER'];
 
@@ -48,7 +57,9 @@ const SESSION = {
   immunityPlayerId: null,
   finaleTop: FINALE_TOP,
   started: false,
-  paused: false
+  paused: false,
+  resultsShown: false,
+  tvMuted: false
 };
 
 function now() { return Date.now(); }
@@ -97,6 +108,8 @@ function buildState() {
     phaseIndex: SESSION.phaseIndex,
     phaseTimer: SESSION.phaseTimer,
     answerLocked: SESSION.answerLocked,
+    resultsShown: SESSION.resultsShown,
+    tvMuted: SESSION.tvMuted,
     councilMode: SESSION.councilMode,
     councilPenalty: SESSION.councilPenalty,
     immunityPlayerId: SESSION.immunityPlayerId,
@@ -105,7 +118,8 @@ function buildState() {
     rankings: rankPlayers(),
     gameState: SESSION.gameState,
     gameAProgress: gameAProgress(),
-    history: SESSION.history.slice(-10)
+    history: SESSION.history.slice(-10),
+    gameCatalog: buildGameCatalog()
   };
 }
 
@@ -123,6 +137,7 @@ function setPhase(phase) {
   SESSION.answerLocked = false;
   SESSION.paused = false;
   SESSION.phaseTimer = { running: false, endsAt: null, remainingMs: 0 };
+  SESSION.resultsShown = false;
 }
 
 function nextPhase() {
@@ -146,17 +161,21 @@ function resumeTimer() {
   SESSION.phaseTimer.endsAt = now() + SESSION.phaseTimer.remainingMs;
 }
 
-function initPhaseState(phase) {
+function initPhaseState(phase, options = {}) {
   if (phase === 'GAME_A') {
-    SESSION.gameState = { key: 'GAME_A', index: 0, question: CONFIG.susceptibleQuestions[0] || '', answers: {}, completed: false };
+    const selectedIndex = Math.max(0, Number(options?.index || 0));
+    SESSION.gameState = { key: 'GAME_A', index: selectedIndex, question: CONFIG.susceptibleQuestions[selectedIndex] || '', answers: {}, completed: false };
   } else if (phase === 'GAME_B') {
-    SESSION.gameState = { key: 'GAME_B', index: 0, prompt: CONFIG.blindtest[0]?.prompt || '', options: CONFIG.blindtest[0]?.options || [], answer: CONFIG.blindtest[0]?.answer || '', answers: {}, completed: false };
+    const selectedIndex = Math.max(0, Number(options?.index || 0));
+    SESSION.gameState = { key: 'GAME_B', index: selectedIndex, prompt: CONFIG.blindtest[selectedIndex]?.prompt || '', options: CONFIG.blindtest[selectedIndex]?.options || [], answer: CONFIG.blindtest[selectedIndex]?.answer || '', answers: {}, completed: false };
   } else if (phase === 'GAME_C') {
-    const item = CONFIG.price[0] || { item: 'Item', price: 100 };
-    SESSION.gameState = { key: 'GAME_C', index: 0, item: item.item, realPrice: item.price, withoutOver: true, answers: {}, completed: false };
+    const selectedIndex = Math.max(0, Number(options?.index || 0));
+    const item = CONFIG.price[selectedIndex] || { item: 'Item', price: 100 };
+    SESSION.gameState = { key: 'GAME_C', index: selectedIndex, item: item.item, realPrice: item.price, withoutOver: true, answers: {}, completed: false };
   } else if (phase === 'GAME_D') {
-    const t = CONFIG.top3[0] || { theme: 'Thème', answers: [] };
-    SESSION.gameState = { key: 'GAME_D', index: 0, theme: t.theme, expected: t.answers, answers: {}, completed: false };
+    const selectedIndex = Math.max(0, Number(options?.index || 0));
+    const t = CONFIG.top3[selectedIndex] || { theme: 'Thème', answers: [] };
+    SESSION.gameState = { key: 'GAME_D', index: selectedIndex, theme: t.theme, expected: t.answers, answers: {}, completed: false };
   } else if (phase === 'GAME_E') {
     const ids = activePlayers().map((p) => p.playerId);
     const pairs = [];
@@ -179,14 +198,52 @@ function resolveGameA() {
   const votes = SESSION.gameState.answers;
   const tally = {};
   Object.values(votes).forEach((target) => { tally[target] = (tally[target] || 0) + 1; });
-  const top = Object.entries(tally).sort((a, b) => b[1] - a[1])[0]?.[0];
+
+  const sortedTop = Object.entries(tally).sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]));
+  const top3 = sortedTop.slice(0, 3).map(([playerId, votesCount]) => ({ playerId, votesCount }));
+  const top = top3[0]?.playerId || null;
+
+  const voteCountsByPlayer = Object.fromEntries(sortedTop.map(([pid, count]) => [pid, count]));
+  const impacts = {};
   for (const p of SESSION.players.values()) {
     ensurePlayerScore(p);
-    if (votes[p.playerId] === top) p.score += 1;
-    if (p.playerId === top) p.score += 2;
+    let delta = 0;
+    const votedFor = votes[p.playerId];
+    if (votedFor && top && votedFor === top) delta += 1;
+    if (votedFor && top && votedFor !== top) delta += 0;
+    if (p.playerId === top) delta -= 2;
+    if (votedFor && voteCountsByPlayer[votedFor] === 1) delta -= 1;
+    p.score += delta;
+    impacts[p.playerId] = delta;
   }
-  SESSION.history.push({ at: nowIso(), game: 'A', winner: top, tally });
-  publishResults({ game: 'A', tally, top });
+  const payload = { game: 'A', tally, top, top3, impacts };
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), game: 'A', winner: top, tally, top3, impacts });
+  publishResults(payload);
+}
+
+function showResultsCurrentPhase() {
+  if (SESSION.resultsShown) return;
+  if (SESSION.phase === 'GAME_A') resolveGameA();
+  else return;
+  SESSION.answerLocked = true;
+  SESSION.resultsShown = true;
+}
+
+function resetSession() {
+  SESSION.players.clear();
+  SESSION.socketsByPlayerId.clear();
+  SESSION.phase = 'LOBBY';
+  SESSION.phaseIndex = FLOW.indexOf('LOBBY');
+  SESSION.phaseStartedAt = null;
+  SESSION.phaseTimer = { running: false, endsAt: null, remainingMs: 0 };
+  SESSION.answerLocked = false;
+  SESSION.resultsShown = false;
+  SESSION.gameState = {};
+  SESSION.history = [];
+  SESSION.immunityPlayerId = null;
+  SESSION.started = false;
+  SESSION.paused = false;
 }
 
 function resolveGameB() {
@@ -303,7 +360,7 @@ function serveFile(res, filePath) {
   fs.readFile(filePath, (err, data) => {
     if (err) return sendJson(res, 404, { error: 'Not found' });
     const ext = path.extname(filePath);
-    const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.md': 'text/plain; charset=utf-8' };
+    const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.md': 'text/plain; charset=utf-8', '.mp3': 'audio/mpeg' };
     res.writeHead(200, { 'Content-Type': types[ext] || 'application/octet-stream' });
     res.end(data);
   });
@@ -372,10 +429,11 @@ io.on('connection', (socket) => {
     else if (command === 'TV_SCREEN') { if (TV_SCREENS.includes(payload?.screen)) SESSION.phase = payload.screen; }
     else if (command === 'LAUNCH_GAME') {
       const game = String(payload?.game || 'GAME_A');
-      if (game !== 'GAME_A') return ack?.({ ok: false, error: 'POC_ONLY_GAME_A' });
+      const allowedGames = ['GAME_A', 'GAME_B', 'GAME_C', 'GAME_D'];
+      if (!allowedGames.includes(game)) return ack?.({ ok: false, error: 'UNSUPPORTED_GAME' });
       SESSION.started = true;
-      setPhase('GAME_A');
-      initPhaseState('GAME_A');
+      setPhase(game);
+      initPhaseState(game, { index: Number(payload?.questionIndex || 0) });
     }
     else if (command === 'UPDATE_SCORE') {
       const pid = String(payload?.playerId || '');
@@ -389,6 +447,16 @@ io.on('connection', (socket) => {
       } else {
         return ack?.({ ok: false, error: 'INVALID_SCORE_PAYLOAD' });
       }
+    }
+    else if (command === 'SHOW_RESULTS') {
+      showResultsCurrentPhase();
+    }
+    else if (command === 'SET_TV_MUTED') {
+      SESSION.tvMuted = !!payload?.muted;
+    }
+    else if (command === 'RESET_GAME') {
+      resetSession();
+      io.emit('game:reset', { at: nowIso() });
     }
     touch();
     broadcastState();
@@ -425,7 +493,9 @@ io.on('connection', (socket) => {
 
     if (SESSION.phase === 'GAME_A' && type === 'A_VOTE') {
       if (SESSION.gameState.answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
-      SESSION.gameState.answers[pid] = payload?.targetPlayerId || '';
+      const target = payload?.targetPlayerId || '';
+      if (target === pid) return ack?.({ ok: false, error: 'NO_SELF_VOTE' });
+      SESSION.gameState.answers[pid] = target;
     } else if (SESSION.phase === 'GAME_B' && type === 'B_ANSWER') {
       if (SESSION.gameState.answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
       SESSION.gameState.answers[pid] = { answer: String(payload?.answer || ''), at: now() };

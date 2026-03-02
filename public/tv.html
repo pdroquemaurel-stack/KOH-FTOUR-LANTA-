@@ -4,6 +4,7 @@
     <div id="bigPhase" class="tv-phase"></div>
     <div id="bigQuestion" class="tv-question"></div>
     <div id="bigRule" class="tv-rule"></div>
+    <div id="resultsBlock" class="tv-results" style="display:none"></div>
     <div class="tv-progress">
       <div><strong>✅ Ont répondu :</strong> <span id="answeredList">-</span></div>
       <div><strong>⏳ En attente :</strong> <span id="pendingList">-</span></div>
@@ -15,6 +16,7 @@
     <ol id="scoreList"></ol>
   </aside>
 </main>
+<audio id="bgMusic" src="/audio/Koh-Lanta Main Theme (Aventuri)  EPIC VERSION.mp3" loop autoplay></audio>
 <script src="/socket.io/socket.io.js"></script><script>
 const socket=io({transports:['websocket','polling']});
 const bigPhase=document.getElementById('bigPhase');
@@ -24,13 +26,16 @@ const playersBar=document.getElementById('playersBar');
 const answeredList=document.getElementById('answeredList');
 const pendingList=document.getElementById('pendingList');
 const scoreList=document.getElementById('scoreList');
+const resultsBlock=document.getElementById('resultsBlock');
+const bgMusic=document.getElementById('bgMusic');
+bgMusic.volume=0.5;
 
 function phaseText(phase){
   const map={LOBBY:'Lobby',INTRO:'Introduction',GAME_A:'Jeu A',RESULTS_A:'Résultats A',GAME_B:'Jeu B',RESULTS_B:'Résultats B',GAME_C:'Jeu C',RESULTS_C:'Résultats C',GAME_D:'Jeu D',RESULTS_D:'Résultats D',GAME_E:'Jeu E',RESULTS_E:'Résultats E',COUNCIL:'Conseil',COUNCIL_RESULT:'Résultat Conseil',FINAL:'Finale',FINAL_RESULT:'Résultat Finale',END:'Fin'};
   return map[phase]||phase;
 }
 function rulesFor(s){
-  if(s.phase==='GAME_A') return 'Vote pour un joueur. 1 vote unique.';
+  if(s.phase==='GAME_A') return s.resultsShown?'Résultats affichés. Votes fermés.':'Vote pour un joueur. 1 vote unique.';
   return 'POC centré sur le Jeu A';
 }
 function questionFor(s){
@@ -38,11 +43,23 @@ function questionFor(s){
   if(s.phase==='GAME_A') return g.question||'Question en cours...';
   return 'Le Ftour des Aventuriers';
 }
+function renderResults(s){
+  const r=s.gameState?.results;
+  if(!s.resultsShown||!r||r.game!=='A'){resultsBlock.style.display='none'; return;}
+  const nameById = Object.fromEntries((s.rankings||[]).map((p)=>[p.playerId,p.name]));
+  const top3=(r.top3||[]).map((x,idx)=>`<li>#${idx+1} ${nameById[x.playerId]||x.playerId} (${x.votesCount})</li>`).join('');
+  const impacts=(s.rankings||[]).map((p)=>{const d=(r.impacts||{})[p.playerId]||0; const cls=d>0?'plus':(d<0?'minus':''); const text=d>0?`+${d}`:`${d}`; return `<li>${p.name} <span class='${cls}'>${text}</span></li>`}).join('');
+  resultsBlock.innerHTML=`<h3>Top 3 des plus cités</h3><ol>${top3||'<li>Aucun</li>'}</ol><h3>Impact points</h3><ul>${impacts}</ul>`;
+  resultsBlock.style.display='block';
+}
 
 socket.on('game:state',(s)=>{
   bigPhase.textContent=phaseText(s.phase);
   bigQuestion.textContent=questionFor(s);
   bigRule.textContent=rulesFor(s);
+  bgMusic.muted=!!s.tvMuted;
+  if(!bgMusic.muted){ bgMusic.play().catch(()=>{}); }
+  renderResults(s);
   const nameById = Object.fromEntries((s.rankings||[]).map((p)=>[p.playerId,p.name]));
   const answeredIds=(s.gameAProgress?.answeredPlayerIds||[]);
   const pendingIds=(s.gameAProgress?.pendingPlayerIds||[]);
