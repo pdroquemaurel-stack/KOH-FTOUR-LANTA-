@@ -64,7 +64,7 @@ function startCountdown(state){
 }
 
 function rulesFor(s){
-  const map={GAME_A:'Vote pour un joueur. 1 vote unique.',GAME_B:'1 bonne réponse par question. Répondez librement.',GAME_C:'Devine le juste prix le plus proche.',GAME_D:'Donne tes 3 meilleures réponses.',GAME_E:'Choisis PARTAGER ou TRAHIR.',GAME_F:'Vise verticalement puis horizontalement.',COUNCIL:'Vote contre un joueur.',FINAL:'Parie puis réponds à la question finale.'};
+  const map={GAME_A:'Vote pour un joueur. 1 vote unique.',GAME_B:'1 bonne réponse par question. Répondez librement.',GAME_C:'Devine le juste prix le plus proche.',GAME_D:'Donne tes 3 meilleures réponses.',GAME_E:'Choisis PARTAGER ou TRAHIR.',GAME_F:'Vise verticalement puis horizontalement.',GAME_G:'Imposteur: observez les votes et les passages.',GAME_H:"Réagis dès l'apparition du totem.",GAME_I:'Choisissez une porte. Une seule cache le totem.',COUNCIL:'Vote contre un joueur.',FINAL:'Parie puis réponds à la question finale.',END:'🏆 Classement final'};
   return map[s.phase]||'';
 }
 function questionFor(s){
@@ -78,7 +78,11 @@ function questionFor(s){
   if(s.phase==='GAME_C') return g.item?`Prix à estimer : ${g.item}`:'Question en cours...';
   if(s.phase==='GAME_D') return g.theme?`Thème : ${g.theme}`:'Question en cours...';
   if(s.phase==='GAME_F') return 'Vise bien ou fais toi des amis';
+  if(s.phase==='GAME_G'){ if(g.stage==='WORD_REVEAL') return `Les aventuriers prennent connaissance de leur destin… (${Object.keys(g.hasSeenWord||{}).length}/${(s.rankings||[]).filter((p)=>!p.eliminated).length})`; if(g.stage==='PASSAGES') return `🔥 C'est au tour de : ${ (s.rankings||[]).find((p)=>p.playerId===g.passageOrder?.[g.passageOrder.length-1])?.name || '...'}`; if(g.stage==='VOTE') return "QUI EST L'IMPOSTEUR ?"; return 'Révélation finale'; }
+  if(s.phase==='GAME_H') return g.stage==='REVEALED' ? 'apres-totem.png' : 'avant-totem.png';
+  if(s.phase==='GAME_I') return g.stage==='RESULT' ? `Porte gagnante: ${g.results?.winningDoor||g.winningDoor||'?'}` : 'Porte cachée: 1, 2 ou 3';
   if(s.phase==='FINAL') return g.question||'Question finale';
+  if(s.phase==='END') return '🏆 LE SURVIVANT DU FTOUR';
   return '';
 }
 function arrowsIcons(p){
@@ -125,6 +129,14 @@ function renderResults(s){
     const current=r.questions?.[idx]||r.questions?.[0]||{question:'',expected:'',answers:[]};
     const cards=(current.answers||[]).map((it)=>`<article class='tv-free-answer-card ${it.validated?'validated':''}'><div class='tv-free-answer-name'>${it.name}</div><div class='tv-free-answer-text'>${it.answer||'—'}</div></article>`).join('');
     resultsBlock.innerHTML=`<h3>Jeu B — Correction ${idx+1}/${(r.questions||[]).length||1}</h3><p class='small'>Bonne réponse: <strong>${current.expected||'—'}</strong></p><div class='tv-free-answer-grid'>${cards||'<p>Aucune réponse</p>'}</div>`;
+  } else if(r.game==='H'){
+    const top=(r.top5||[]).map((e,idx)=>`<li>#${idx+1} ${nameById[e.pid]||e.pid} — ${e.deltaMs} ms</li>`).join('');
+    resultsBlock.innerHTML=`<h3>Totem caché — Top 5</h3><ol>${top||'<li>Aucun clic</li>'}</ol>`;
+  } else if(r.game==='I'){
+    resultsBlock.innerHTML=`<h3>Porte gagnante: ${r.winningDoor}</h3>`;
+  } else if(r.game==='G'){
+    const imposteurs=(r.impostorIds||[]).map((id)=>nameById[id]||id).join(', ');
+    resultsBlock.innerHTML=`<h3>Imposteurs révélés</h3><p>${imposteurs||'Aucun'}</p>`;
   } else {
     const pretty=JSON.stringify(r,(k,v)=>nameById[v]||v,2);
     resultsBlock.innerHTML=`<h3>Résultats ${r.game||''}</h3><pre>${pretty}</pre>`;
@@ -135,6 +147,11 @@ function renderResults(s){
 socket.on('game:state',(s)=>{
   bigQuestion.textContent=questionFor(s);
   bigRule.textContent=rulesFor(s);
+  if(s.phase==='END'){
+    const top=(s.gameState?.finalRanking||s.rankings||[]).slice(0,3);
+    resultsBlock.style.display='block';
+    resultsBlock.innerHTML=`<h2>🏆 LE SURVIVANT DU FTOUR</h2><p>🥇 ${top[0]?.name||'-'} — ${top[0]?.score||0} pts</p><p>🥈 ${top[1]?.name||'-'} — ${top[1]?.score||0} pts</p><p>🥉 ${top[2]?.name||'-'} — ${top[2]?.score||0} pts</p>`;
+  }
   bgMusic.muted=!!s.tvMuted;
   if(!bgMusic.muted){ bgMusic.play().catch((e)=>reportAudioError(e?.message||'AUDIO_PLAY_BLOCKED')); }
   startCountdown(s);

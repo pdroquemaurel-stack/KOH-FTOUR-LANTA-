@@ -178,6 +178,35 @@
       if (phase !== 'GAME_B') gameBUiState = { questionKey: '', value: '', validated: false };
       if (st.resultsShown) { a.innerHTML = '<p>Résultats affichés: réponses fermées.</p>'; return; }
       if (phase === 'GAME_A') { a.innerHTML = `<select id='t'>${playerList()}</select><button id='s'>Voter</button>`; byId('s').onclick = () => send('A_VOTE', { targetPlayerId: byId('t').value }); }
+      else if (phase === 'GAME_G') {
+        const seen = !!gs.hasSeenWord?.[me.playerId];
+        if (gs.stage === 'WORD_REVEAL') {
+          a.innerHTML = `<p>${seen ? '✅ Mot confirmé' : 'Clique pour révéler ton mot'}</p><button id='revealWord'>RÉVÉLER MON MOT</button><div id='wordBox' class='panel mt'></div><button id='seenWord' class='secondary mt' ${seen?'disabled':''}>J'ai pris connaissance de mon mot</button>`;
+          byId('revealWord').onclick = () => {
+            socket.emit('game:action', { type: 'G_FETCH_WORD', payload: {} }, (r) => {
+              const box = byId('wordBox');
+              if (!r?.ok) { box.innerHTML = `<div class='error-msg'>${r?.error || 'Erreur'}</div>`; return; }
+              box.innerHTML = r.isImpostor ? `<div class='error-msg'>IMPOSTEUR</div>` : `<strong>${r.word || 'Mot secret'}</strong>`;
+            });
+          };
+          byId('seenWord').onclick = () => send('G_CONFIRM_WORD', {});
+        } else if (gs.stage === 'VOTE') {
+          a.innerHTML = `<select id='gv'>${playerList()}</select><button id='gvs'>Voter imposteur</button>`;
+          byId('gvs').onclick = () => send('G_VOTE', { targetPlayerId: byId('gv').value });
+        } else {
+          a.innerHTML = '<p>Attente de la suite (imposteur)...</p>';
+        }
+      }
+      else if (phase === 'GAME_H') {
+        const clicked = !!gs.clickedAt?.[me.playerId];
+        a.innerHTML = `<p>${gs.stage === 'REVEALED' ? '🔥 TOTEM APPARU !' : 'Prépare-toi...'}</p><button id='grabTotem' ${gs.stage === 'REVEALED' && !clicked ? '' : 'disabled'}>ATTRAPER LE TOTEM</button>`;
+        byId('grabTotem').onclick = () => send('H_GRAB_TOTEM', {});
+      }
+      else if (phase === 'GAME_I') {
+        const picked = gs.doorChoices?.[me.playerId];
+        a.innerHTML = `<p>Choisis une porte</p><div class='grid grid-3'><button data-door='1' ${picked?'disabled':''}>Porte 1</button><button data-door='2' ${picked?'disabled':''}>Porte 2</button><button data-door='3' ${picked?'disabled':''}>Porte 3</button></div>`;
+        a.querySelectorAll('[data-door]').forEach((b)=>b.onclick=()=>send('I_PICK_DOOR',{door:Number(b.dataset.door)}));
+      }
       else if (phase === 'GAME_B') {
         const qKey = `${gs.currentIndex ?? -1}|${gs.questions?.[gs.currentIndex]?.prompt || ''}`;
         if (gameBUiState.questionKey !== qKey) gameBUiState = { questionKey: qKey, value: '', validated: false };
@@ -245,6 +274,7 @@
       }
       else if (phase === 'COUNCIL') { a.innerHTML = `<select id='v'>${playerList()}</select><button id='s'>Voter secret</button>`; byId('s').onclick = () => send('COUNCIL_VOTE', { targetPlayerId: byId('v').value }); }
       else if (phase === 'FINAL') { const finalist = (gs.finalists || []).includes(me.playerId); if (!finalist) { a.innerHTML = '<p>Tu n\'es pas finaliste.</p>'; return; } a.innerHTML = `<input id='bet' type='number' min='0' max='5' placeholder='Mise 0-5'/><input id='ans' placeholder='Réponse finale'/><button id='s'>Envoyer finale</button>`; byId('s').onclick = () => send('FINAL_BET_ANSWER', { bet: Number(byId('bet').value), answer: byId('ans').value }); }
+      else if (phase === 'END') { const rows=(st.gameState?.finalRanking||st.rankings||[]).map((p)=>`<li ${p.playerId===me.playerId?'style="font-weight:700"':''}>#${p.rank} ${p.name} — ${p.score} pts</li>`).join(''); a.innerHTML = `<h3>Classement final</h3><ol>${rows}</ol>`; }
       else { stopArcheryAnim(); a.innerHTML = '<p>En attente de la prochaine épreuve...</p>'; }
     }
 

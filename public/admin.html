@@ -13,7 +13,7 @@
       <button id="launchGame">Lancer le jeu sélectionné</button>
       <button id="showResults" class="secondary">Montrer les résultats</button>
       <button id="toggleTvMute" class="secondary">TV: Muet</button>
-      <button id="resetGame" class="danger">Réinitialiser le jeu</button>
+      <button id="finishGame" class="secondary">Terminer le jeu</button><button id="resetGame" class="danger">Réinitialiser le jeu</button>
     </div>
   </div>
 
@@ -23,6 +23,8 @@
     <ul id="impactList" class="roster"></ul>
   </div>
 
+
+  <div id='specialControls' class='admin-actions mt'></div>
   <div class="panel mt">
     <h3>Scores joueurs</h3>
     <ul id="roster" class="roster"></ul>
@@ -30,7 +32,7 @@
 </section></div>
 <script src="/socket.io/socket.io.js"></script><script>
 const socket=io({transports:['websocket','polling']});let state=null;const byId=id=>document.getElementById(id);
-const GAME_LABELS={GAME_A:'Jeu A — Susceptible de...',GAME_B:'Jeu B — 1 bonne réponse par question',GAME_C:'Jeu C',GAME_D:'Jeu D',GAME_F:'Jeu F — Vise bien ou fais toi des amis'};
+const GAME_LABELS={GAME_A:'Jeu A — Susceptible de...',GAME_B:'Jeu B — 1 bonne réponse par question',GAME_C:'Jeu C',GAME_D:'Jeu D',GAME_F:'Jeu F — Vise bien ou fais toi des amis',GAME_G:'Jeu G — Imposteur',GAME_H:'Jeu H — Totem Caché',GAME_I:'Jeu I — Porte Cachée'};
 function cmd(command,payload,cb){socket.emit('admin:command',{command,payload},cb);}
 function scoreControls(p){ return `<div class='score-ctl'><button data-score='-1' data-p='${p.playerId}' class='secondary'>-1</button><strong>${p.score}</strong><button data-score='1' data-p='${p.playerId}'>+1</button></div>`; }
 function arrowControls(p){ const arrows=Math.max(0,Math.min(2,Number(p.arrows??2))); return `<button class='secondary' data-restore-arrow='${p.playerId}'>🏹 ${arrows}/2 (+1)</button>`; }
@@ -116,6 +118,21 @@ function render(s){
   if(s.lastTvAudioError){ audioErr.style.display=''; audioErr.textContent=`⚠️ Audio TV: ${s.lastTvAudioError.reason} (${new Date(s.lastTvAudioError.at).toLocaleTimeString()})`; }
   else { audioErr.style.display='none'; audioErr.textContent=''; }
   renderResults(s);
+  const special=byId('specialControls');
+  if(special){
+    if(s.phase==='GAME_G'){
+      special.innerHTML=`<button id='gNext'>Phase suivante imposteur</button><button id='gDraw' class='secondary'>Joueur suivant</button><select id='gReveal'>${(s.rankings||[]).filter((p)=>!p.eliminated).map((p)=>`<option value='${p.playerId}'>${p.name}</option>`).join('')}</select><button id='gResult' class='danger'>Révéler résultat</button>`;
+      byId('gNext')?.addEventListener('click',()=>cmd('GAME_G_NEXT_STAGE'));
+      byId('gDraw')?.addEventListener('click',()=>cmd('GAME_G_DRAW_PLAYER'));
+      byId('gResult')?.addEventListener('click',()=>cmd('GAME_G_REVEAL_RESULT',{revealedPlayerId:byId('gReveal').value}));
+    } else if(s.phase==='GAME_H'){
+      special.innerHTML=`<button id='hReveal'>Révéler le totem maintenant</button>`;
+      byId('hReveal')?.addEventListener('click',()=>cmd('GAME_H_REVEAL'));
+    } else if(s.phase==='GAME_I'){
+      special.innerHTML=`<button id='iReveal' class='danger'>Révéler la porte</button>`;
+      byId('iReveal')?.addEventListener('click',()=>cmd('GAME_I_REVEAL'));
+    } else special.innerHTML='';
+  }
   roster.querySelectorAll('[data-score]').forEach((b)=>b.onclick=()=>cmd('UPDATE_SCORE',{playerId:b.dataset.p,delta:Number(b.dataset.score)}));
   roster.querySelectorAll('[data-restore-arrow]').forEach((b)=>b.onclick=()=>cmd('RESTORE_ARROW',{playerId:b.dataset.restoreArrow}));
 }
@@ -126,6 +143,7 @@ byId('login').onclick=()=>socket.emit('admin:auth',{password:byId('pwd').value},
 byId('launchGame').onclick=()=>cmd('LAUNCH_GAME',{game:byId('gamePicker').value,questionIndex:Number(byId('questionPicker').value||0),count:Number(byId('gameBCount')?.value||1),seconds:Number(byId('gameBSeconds')?.value||20)},(r)=>{if(!r?.ok) alert(r.error||'Launch impossible');});
 byId('showResults').onclick=()=>cmd('SHOW_RESULTS',{},(r)=>{if(!r?.ok) alert(r.error||'Action impossible');});
 byId('toggleTvMute').onclick=()=>cmd('SET_TV_MUTED',{muted:!state?.tvMuted});
+byId('finishGame').onclick=()=>cmd('FINISH_GAME');
 byId('resetGame').onclick=()=>{ if(confirm('Réinitialiser toute la partie ?')) cmd('RESET_GAME'); };
 socket.on('game:state',render); socket.on('admin:revoked',()=>alert('Session admin reprise ailleurs')); socket.on('admin:tv_audio_error',(e)=>{ const box=byId('tvAudioError'); box.style.display=''; box.textContent=`⚠️ Audio TV bloqué: ${e.reason}`; });
 byId('launchGame').insertAdjacentHTML('afterend',gameBControls());
