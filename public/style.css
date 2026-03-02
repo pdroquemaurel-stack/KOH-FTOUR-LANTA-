@@ -38,6 +38,27 @@ button.secondary { background: linear-gradient(180deg, #6c7c66, #42503f); color:
 .grid { display:grid; gap:12px; }
 .grid-2 { grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); }
 
+.character-picker { display: grid; gap: 8px; }
+.character-carousel-wrap { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 8px; }
+.character-track { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; }
+.character-card {
+  width: 100%;
+  border-radius: 18px;
+  border: 3px solid var(--character-color, #ffb347);
+  background: rgba(0,0,0,.45);
+  color: var(--bone);
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  padding: 8px 6px;
+  transition: transform .15s ease, opacity .15s ease;
+}
+.character-card img { width: 100%; max-width: 88px; aspect-ratio: 1/1; object-fit: contain; }
+.character-card span { font-size: .78rem; text-align: center; line-height: 1.2; }
+.character-card:not(.center) { opacity: .72; transform: scale(.92); }
+.character-card.center { opacity: 1; transform: scale(1); }
+.character-card.selected { box-shadow: 0 0 0 3px rgba(255,255,255,.24) inset, 0 0 14px color-mix(in oklab, var(--character-color, #fff) 60%, transparent); }
+
 /* TV immersive */
 .tv-stage {
   background:
