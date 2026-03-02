@@ -24,10 +24,9 @@ const timerValueEl=document.getElementById('questionTimerValue');
 const awardFlash=document.getElementById('awardFlash');
 const bgMusic=document.getElementById('bgMusic');
 let timerInterval=null,lastTickSecond=null,lastAwardAt='';
-let lastScoreHtml='';
 const beepCtx=(window.AudioContext||window.webkitAudioContext)?new (window.AudioContext||window.webkitAudioContext)():null;
 function beep(){ if(!beepCtx) return; if(beepCtx.state==='suspended') beepCtx.resume().catch(()=>{}); const o=beepCtx.createOscillator(), g=beepCtx.createGain(); o.frequency.value=880; g.gain.value=.05; o.connect(g); g.connect(beepCtx.destination); const t=beepCtx.currentTime; o.start(t); o.stop(t+.08);} 
-function avatarSrc(v){ const raw=String(v||'').trim(); if(!raw) return '/Visuels/joueur/Lion%20rouge%20sang.png'; const cleaned=raw.replace(/^\/+/,''); return '/' + encodeURI(cleaned); }
+function avatarSrc(v){ const s=String(v||''); return s.includes('/') ? '/' + encodeURI(s) : '/Visuels/joueur/Lion rouge sang.png'; }
 function stopCountdown(){ if(timerInterval){clearInterval(timerInterval);timerInterval=null;} timerEl.style.display='none'; timerValueEl.textContent='--'; lastTickSecond=null; }
 function startCountdown(state){ stopCountdown(); if(state.phase!=='GAME_B'||state.gameState?.stage!=='QUESTION'||!state.phaseTimer?.endsAt) return; timerEl.style.display=''; const tick=()=>{const remain=Math.max(0,Math.ceil((Number(state.phaseTimer.endsAt)-Date.now())/1000)); timerValueEl.textContent=remain; if(remain<=5&&remain>0&&remain!==lastTickSecond){beep();lastTickSecond=remain;} if(remain<=0) stopCountdown();}; tick(); timerInterval=setInterval(tick,200);} 
 function rulesFor(s){ const map={GAME_A:'Vote pour un joueur.',GAME_B:'1 bonne réponse par question.',GAME_C:'Le juste prix en dirham.',GAME_D:'Blind test: titre + artiste.',GAME_E:'Choisis PARTAGER ou TRAHIR.',GAME_F:'Vise puis tire.',COUNCIL:'Vote secret.',FINAL:'Parie puis réponds.'}; return map[s.phase]||''; }
@@ -46,7 +45,6 @@ socket.on('game:state',(s)=>{
   questionSeriesInfo.textContent=questionSeriesText(s);
   startCountdown(s); renderResults(s); renderAward(s);
   const answeredIds=(s.gameProgress?.answeredPlayerIds||[]);
-  const scoreHtml=(s.rankings||[]).map(p=>`<li><span class='${answeredIds.includes(p.playerId)?'answered':''}'><img class='tv-player-avatar' src='${avatarSrc(p.animal)}' alt='joueur'/><span>${p.name}</span> ${arrowsIcons(p)}</span><strong>${p.score}</strong></li>`).join('');
-  if(scoreHtml!==lastScoreHtml){ scoreList.innerHTML=scoreHtml; lastScoreHtml=scoreHtml; }
+  scoreList.innerHTML=(s.rankings||[]).map(p=>`<li><span class='${answeredIds.includes(p.playerId)?'answered':''}'><img class='tv-player-avatar' src='${avatarSrc(p.animal)}' alt='joueur'/>${p.name} ${arrowsIcons(p)}</span><strong>${p.score}</strong></li>`).join('');
 });
 </script></body></html>
