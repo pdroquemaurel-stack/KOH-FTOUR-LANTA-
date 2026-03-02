@@ -5,9 +5,11 @@
   <div class="phase-banner">ÉTAPE ACTUELLE : <span id="phase">LOBBY</span> <span id="timer" class="small"></span></div>
   <div class="grid grid-2 mt">
     <div class="panel">
-      <h3>Contrôles essentiels</h3>
-      <div class="grid">
-        <button data-c="START">Start</button>
+      <h3>POC — Lancer un jeu</h3>
+      <select id="gamePicker"><option value="GAME_A">Jeu A — Susceptible de...</option></select>
+      <button id="launchGame" class="mt">Lancer le jeu sélectionné</button>
+      <div class="grid mt">
+        <button data-c="START">Start session</button>
         <button data-c="NEXT" class="secondary">Next</button>
         <button id="pauseResume" class="secondary">Pause</button>
       </div>
@@ -60,5 +62,6 @@ document.querySelectorAll('[data-c]').forEach((b)=>b.onclick=()=>cmd(b.dataset.c
 byId('pauseResume').onclick=()=>cmd(state?.paused?'RESUME':'PAUSE');
 byId('setImmunity').onclick=()=>cmd('SET_IMMUNITY',{playerId:byId('immunity').value||null});
 byId('mode').onchange=()=>cmd('SET_COUNCIL_MODE',{mode:byId('mode').value});
+byId('launchGame').onclick=()=>cmd('LAUNCH_GAME',{game:byId('gamePicker').value},(r)=>{if(!r?.ok) alert(r.error||'Launch impossible');});
 socket.on('game:state',render); socket.on('admin:revoked',()=>alert('Session admin reprise ailleurs'));
 </script></body></html>

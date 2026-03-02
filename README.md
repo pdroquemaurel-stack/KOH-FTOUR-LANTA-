@@ -87,3 +87,8 @@ Server -> clients
 - Admin simplifié: phase actuelle visible en grand + commandes essentielles (Start/Next/Pause-Resume).
 - Admin peut modifier les scores en direct (+1/-1 ou valeur directe).
 - TV immersive: fond `/public/Visuels/tv_background_main_1920x1080.png`, question et règles affichées en très grand, noms joueurs en bas.
+
+## POC Jeu A
+- Admin peut sélectionner et lancer `GAME_A` via `LAUNCH_GAME`.
+- TV affiche en live qui a répondu et qui est en attente (`gameAProgress`).
+- Fond TV: `Visuels/tv_background_main_1920x1080.png`.

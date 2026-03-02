@@ -3,6 +3,10 @@
   <div id="bigPhase" class="tv-phase"></div>
   <div id="bigQuestion" class="tv-question"></div>
   <div id="bigRule" class="tv-rule"></div>
+  <div class="tv-progress">
+    <div><strong>✅ Ont répondu :</strong> <span id="answeredList">-</span></div>
+    <div><strong>⏳ En attente :</strong> <span id="pendingList">-</span></div>
+  </div>
   <div id="playersBar" class="tv-players-bar"></div>
 </main>
 <script src="/socket.io/socket.io.js"></script><script>
@@ -11,33 +15,20 @@ const bigPhase=document.getElementById('bigPhase');
 const bigQuestion=document.getElementById('bigQuestion');
 const bigRule=document.getElementById('bigRule');
 const playersBar=document.getElementById('playersBar');
+const answeredList=document.getElementById('answeredList');
+const pendingList=document.getElementById('pendingList');
 
 function phaseText(phase){
   const map={LOBBY:'Lobby',INTRO:'Introduction',GAME_A:'Jeu A',RESULTS_A:'Résultats A',GAME_B:'Jeu B',RESULTS_B:'Résultats B',GAME_C:'Jeu C',RESULTS_C:'Résultats C',GAME_D:'Jeu D',RESULTS_D:'Résultats D',GAME_E:'Jeu E',RESULTS_E:'Résultats E',COUNCIL:'Conseil',COUNCIL_RESULT:'Résultat Conseil',FINAL:'Finale',FINAL_RESULT:'Résultat Finale',END:'Fin'};
   return map[phase]||phase;
 }
 function rulesFor(s){
-  const p=s.phase;
-  if(p==='GAME_A') return 'Vote pour un joueur. 1 vote unique.';
-  if(p==='GAME_B') return 'Réponds vite. Bonne réponse + rapidité.';
-  if(p==='GAME_C') return 'Propose un prix. Le plus proche gagne.';
-  if(p==='GAME_D') return 'Donne 3 réponses. Bonus si 3/3.';
-  if(p==='GAME_E') return 'Choisis Partager ou Trahir.';
-  if(p==='COUNCIL') return 'Vote secret. Immunité possible.';
-  if(p==='FINAL') return 'Finalistes: mise + réponse.';
-  if(p==='END') return 'Podium final.';
-  return 'Préparez-vous...';
+  if(s.phase==='GAME_A') return 'Vote pour un joueur. 1 vote unique.';
+  return 'POC centré sur le Jeu A';
 }
 function questionFor(s){
   const g=s.gameState||{};
   if(s.phase==='GAME_A') return g.question||'Question en cours...';
-  if(s.phase==='GAME_B') return g.prompt||'Question rapidité';
-  if(s.phase==='GAME_C') return g.item?`Prix juste: ${g.item}`:'Prix juste';
-  if(s.phase==='GAME_D') return g.theme?`Top 3: ${g.theme}`:'Top 3 Maroc';
-  if(s.phase==='GAME_E') return `Round ${g.round||1}/${g.maxRounds||3}`;
-  if(s.phase==='FINAL') return g.question||'Question finale';
-  if(s.phase==='COUNCIL') return 'Les votes sont ouverts';
-  if(s.phase==='END') return 'Survivant du Ftour des Aventuriers';
   return 'Le Ftour des Aventuriers';
 }
 
@@ -45,6 +36,11 @@ socket.on('game:state',(s)=>{
   bigPhase.textContent=phaseText(s.phase);
   bigQuestion.textContent=questionFor(s);
   bigRule.textContent=rulesFor(s);
+  const nameById = Object.fromEntries((s.rankings||[]).map((p)=>[p.playerId,p.name]));
+  const answered=(s.gameAProgress?.answeredPlayerIds||[]).map((id)=>nameById[id]||id);
+  const pending=(s.gameAProgress?.pendingPlayerIds||[]).map((id)=>nameById[id]||id);
+  answeredList.textContent = answered.length ? answered.join(', ') : '-';
+  pendingList.textContent = pending.length ? pending.join(', ') : '-';
   playersBar.innerHTML=(s.rankings||[]).map(p=>`<span>${p.name}</span>`).join('');
 });
 </script></body></html>

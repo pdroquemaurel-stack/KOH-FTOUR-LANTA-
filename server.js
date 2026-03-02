@@ -60,6 +60,14 @@ function touch() { SESSION.updatedAt = nowIso(); }
 function phaseAllowsActions() { return SESSION.started && !SESSION.paused && !SESSION.answerLocked; }
 function activePlayers() { return [...SESSION.players.values()].filter((p) => !p.eliminated); }
 
+function gameAProgress() {
+  if (SESSION.phase !== 'GAME_A' || !SESSION.gameState || !SESSION.gameState.answers) return { answeredPlayerIds: [], pendingPlayerIds: [] };
+  const alive = activePlayers().map((p) => p.playerId);
+  const answered = alive.filter((pid) => Boolean(SESSION.gameState.answers[pid]));
+  const pending = alive.filter((pid) => !SESSION.gameState.answers[pid]);
+  return { answeredPlayerIds: answered, pendingPlayerIds: pending };
+}
+
 function ensurePlayerScore(p) { if (typeof p.score !== 'number') p.score = 0; }
 
 function rankPlayers() {
@@ -96,6 +104,7 @@ function buildState() {
     playerCount: SESSION.players.size,
     rankings: rankPlayers(),
     gameState: SESSION.gameState,
+    gameAProgress: gameAProgress(),
     history: SESSION.history.slice(-10)
   };
 }
@@ -361,6 +370,13 @@ io.on('connection', (socket) => {
     else if (command === 'SET_IMMUNITY') { SESSION.immunityPlayerId = payload?.playerId || null; }
     else if (command === 'SET_COUNCIL_MODE') { SESSION.councilMode = payload?.mode === 'PENALTY' ? 'PENALTY' : 'ELIMINATION'; }
     else if (command === 'TV_SCREEN') { if (TV_SCREENS.includes(payload?.screen)) SESSION.phase = payload.screen; }
+    else if (command === 'LAUNCH_GAME') {
+      const game = String(payload?.game || 'GAME_A');
+      if (game !== 'GAME_A') return ack?.({ ok: false, error: 'POC_ONLY_GAME_A' });
+      SESSION.started = true;
+      setPhase('GAME_A');
+      initPhaseState('GAME_A');
+    }
     else if (command === 'UPDATE_SCORE') {
       const pid = String(payload?.playerId || '');
       const p = SESSION.players.get(pid);
