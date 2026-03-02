@@ -151,11 +151,33 @@ button.secondary { background: linear-gradient(180deg, #6c7c66, #42503f); color:
   gap: clamp(8px, 1.2vh, 16px);
   overflow: hidden;
 }
-.tv-question { align-self: center; text-align: center; font-size: clamp(1.3rem,3.6vw,3.8rem); line-height: 1.05; font-weight: 900; padding: 1vh .8vw; text-shadow: 0 5px 26px rgba(0,0,0,.82); overflow: auto; }
-.tv-rule { text-align: center; font-size: clamp(.9rem,1.9vw,1.45rem); font-weight: 700; color: #ffe4bd; text-shadow: 0 3px 18px rgba(0,0,0,.8); margin-bottom: .2vh; max-height: 9vh; overflow: auto; }
-.tv-players-bar { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 8px; border-radius: 12px; background: rgba(8,10,9,.58); max-height: 14vh; overflow: auto; }
-.tv-players-bar span { padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,216,157,.45); font-size: clamp(.9rem,1.6vw,1.3rem); }
-.tv-players-bar span.answered { color: var(--answered); border-color: rgba(99,210,140,.8); }
+.tv-question {
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: clamp(1.9rem, 5.3vw, 5.4rem);
+  line-height: 1.1;
+  font-weight: 900;
+  padding: 1vh .8vw;
+  text-shadow: 0 5px 26px rgba(0,0,0,.82);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.tv-question-timer {
+  justify-self: center;
+  font-size: clamp(1rem, 1.8vw, 1.6rem);
+  font-weight: 800;
+  color: #ffe4bd;
+  background: rgba(8,10,9,.6);
+  border: 1px solid rgba(255,216,157,.45);
+  border-radius: 999px;
+  padding: .3rem .8rem;
+}
+.tv-rule { text-align: center; font-size: clamp(.95rem,2vw,1.5rem); font-weight: 700; color: #ffe4bd; text-shadow: 0 3px 18px rgba(0,0,0,.8); margin-bottom: .2vh; max-height: 10vh; overflow: auto; }
+.tv-players-bar { display:none !important; }
 .tv-scoreboard { position: sticky; top: 2vh; max-height: calc(100dvh - 4vh); overflow: auto; background: rgba(8,10,9,.62); border: 1px solid rgba(255,216,157,.45); border-radius: 12px; padding: 10px; }
 .tv-scoreboard h3 { margin: 4px 0 12px; font-size: clamp(1.4rem,2.4vw,2rem); }
 .tv-scoreboard ol { margin: 0; padding-left: 24px; display: grid; gap: 10px; font-size: clamp(1.2rem,2vw,1.9rem); }
@@ -178,6 +200,12 @@ button.danger { background: linear-gradient(180deg, #f07a7a, #b03232); color: #f
 .tv-free-answer-card.validated { background: rgba(42,178,84,.35); border-color: rgba(94,230,145,.85); }
 .tv-free-answer-name { color:#b8b8b8; font-size:.9rem; margin-bottom:4px; }
 .tv-free-answer-text { color:#fff; font-size:1.15rem; font-weight:700; }
+
+
+.answer-validated {
+  background: rgba(42,178,84,.35) !important;
+  border-color: rgba(94,230,145,.85) !important;
+}
 
 .score-bottom { position: sticky; bottom: 10px; margin: 14px auto 0; width: fit-content; }
 .error-msg { color: #ff7d7d; font-weight: 800; }

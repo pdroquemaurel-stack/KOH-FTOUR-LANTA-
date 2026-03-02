@@ -2,9 +2,9 @@
 <main class="tv-layout">
   <section class="tv-main">
     <div id="bigQuestion" class="tv-question"></div>
+    <div id="questionTimer" class="tv-question-timer" style="display:none">⏱️ <span id="questionTimerValue">--</span>s</div>
     <div id="bigRule" class="tv-rule"></div>
     <div id="resultsBlock" class="tv-results" style="display:none"></div>
-    <div id="playersBar" class="tv-players-bar"></div>
   </section>
   <aside class="tv-scoreboard">
     <h3>Classement</h3>
@@ -16,22 +16,56 @@
 const socket=io({transports:['websocket','polling']});
 const bigQuestion=document.getElementById('bigQuestion');
 const bigRule=document.getElementById('bigRule');
-const playersBar=document.getElementById('playersBar');
 const scoreList=document.getElementById('scoreList');
 const resultsBlock=document.getElementById('resultsBlock');
+const timerEl=document.getElementById('questionTimer');
+const timerValueEl=document.getElementById('questionTimerValue');
 const bgMusic=document.getElementById('bgMusic');
 bgMusic.volume=0.5;
 let audioErrorSent=false;
+let timerInterval=null;
+let lastTickSecond=null;
+const beepCtx = (window.AudioContext||window.webkitAudioContext) ? new (window.AudioContext||window.webkitAudioContext)() : null;
 function reportAudioError(reason){
   if(audioErrorSent) return;
   audioErrorSent=true;
   socket.emit('tv:audio_error',{reason:String(reason||'AUDIO_PLAY_BLOCKED')});
 }
+function beep(){
+  if(!beepCtx) return;
+  if(beepCtx.state==='suspended') beepCtx.resume().catch(()=>{});
+  const o=beepCtx.createOscillator();
+  const g=beepCtx.createGain();
+  o.frequency.value=880;
+  o.type='square';
+  g.gain.value=0.05;
+  o.connect(g); g.connect(beepCtx.destination);
+  const t=beepCtx.currentTime;
+  o.start(t); o.stop(t+0.08);
+}
+function stopCountdown(){
+  if(timerInterval){ clearInterval(timerInterval); timerInterval=null; }
+  timerEl.style.display='none';
+  timerValueEl.textContent='--';
+  lastTickSecond=null;
+}
+function startCountdown(state){
+  stopCountdown();
+  if(state.phase!=='GAME_B' || state.gameState?.stage!=='QUESTION' || !state.phaseTimer?.endsAt){ return; }
+  timerEl.style.display='';
+  const tick=()=>{
+    const remain=Math.max(0, Math.ceil((Number(state.phaseTimer.endsAt)-Date.now())/1000));
+    timerValueEl.textContent=remain;
+    if(remain<=5 && remain>0 && remain!==lastTickSecond){ beep(); lastTickSecond=remain; }
+    if(remain<=0) stopCountdown();
+  };
+  tick();
+  timerInterval=setInterval(tick,200);
+}
 
 function rulesFor(s){
   const map={GAME_A:'Vote pour un joueur. 1 vote unique.',GAME_B:'1 bonne réponse par question. Répondez librement.',GAME_C:'Devine le juste prix le plus proche.',GAME_D:'Donne tes 3 meilleures réponses.',GAME_E:'Choisis PARTAGER ou TRAHIR.',GAME_F:'Vise verticalement puis horizontalement.',COUNCIL:'Vote contre un joueur.',FINAL:'Parie puis réponds à la question finale.'};
-  if(map[s.phase]) return map[s.phase];
-  return '';
+  return map[s.phase]||'';
 }
 function questionFor(s){
   const g=s.gameState||{};
@@ -53,7 +87,6 @@ function arrowsIcons(p){
   const broken=Math.max(0,total-left);
   return `<span class='tv-arrows'>${'<img src="/Visuels/archery_arrow_intact.png" alt="flèche intacte"/>' .repeat(left)}${'<img src="/Visuels/archery_arrow_broken.png" alt="flèche cassée"/>' .repeat(broken)}</span>`;
 }
-
 function renderResults(s){
   const r=s.gameState?.results;
   if(!s.resultsShown||!r){resultsBlock.style.display='none'; resultsBlock.classList.remove('archery-results'); return;}
@@ -93,7 +126,6 @@ function renderResults(s){
     const cards=(current.answers||[]).map((it)=>`<article class='tv-free-answer-card ${it.validated?'validated':''}'><div class='tv-free-answer-name'>${it.name}</div><div class='tv-free-answer-text'>${it.answer||'—'}</div></article>`).join('');
     resultsBlock.innerHTML=`<h3>Jeu B — Correction ${idx+1}/${(r.questions||[]).length||1}</h3><p class='small'>Bonne réponse: <strong>${current.expected||'—'}</strong></p><div class='tv-free-answer-grid'>${cards||'<p>Aucune réponse</p>'}</div>`;
   } else {
-    resultsBlock.classList.remove('archery-results');
     const pretty=JSON.stringify(r,(k,v)=>nameById[v]||v,2);
     resultsBlock.innerHTML=`<h3>Résultats ${r.game||''}</h3><pre>${pretty}</pre>`;
   }
@@ -105,10 +137,9 @@ socket.on('game:state',(s)=>{
   bigRule.textContent=rulesFor(s);
   bgMusic.muted=!!s.tvMuted;
   if(!bgMusic.muted){ bgMusic.play().catch((e)=>reportAudioError(e?.message||'AUDIO_PLAY_BLOCKED')); }
+  startCountdown(s);
   renderResults(s);
-  const nameById = Object.fromEntries((s.rankings||[]).map((p)=>[p.playerId,p.name]));
   const answeredIds=(s.gameProgress?.answeredPlayerIds||s.gameAProgress?.answeredPlayerIds||[]);
-  playersBar.innerHTML=(s.rankings||[]).map(p=>`<span class='${answeredIds.includes(p.playerId)?'answered':''}'>${p.name}</span>`).join('');
   scoreList.innerHTML=(s.rankings||[]).map(p=>`<li><span class='${answeredIds.includes(p.playerId)?'answered':''}'>${p.name} ${arrowsIcons(p)}</span><strong>${p.score}</strong></li>`).join('');
 });
 bgMusic.addEventListener('error',()=>reportAudioError('AUDIO_ELEMENT_ERROR'));
