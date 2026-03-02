@@ -10,29 +10,20 @@
     <select id="gamePicker"><option value="">— Sélectionner un jeu —</option></select>
     <select id="questionPicker" class="mt" style="display:none"></select>
     <div id="gameInfo" class="panel mt" style="display:none"></div>
-
     <div id='gameBAdminConfig' class='mt' style='display:none'>
+      <h4 style='margin:.2rem 0 .5rem;'>Paramètres Jeu B</h4>
       <div class='grid grid-2'>
-        <div><label>Questions</label><select id='gameBCount'><option>1</option><option>2</option><option>5</option><option>10</option><option>15</option></select></div>
-        <div><label>Secondes / question</label><select id='gameBSeconds'></select></div>
+        <div><label for='gameBCount'>Questions à la suite</label><select id='gameBCount'><option value='1'>1</option><option value='2'>2</option><option value='5'>5</option><option value='10'>10</option><option value='15'>15</option></select></div>
+        <div><label for='gameBSeconds'>Secondes / question</label><select id='gameBSeconds'></select></div>
       </div>
     </div>
-
     <div id='gameCAdminConfig' class='mt' style='display:none'>
+      <h4 style='margin:.2rem 0 .5rem;'>Paramètres manuels Jeu C</h4>
       <div class='grid'>
         <input id='gameCManualItem' placeholder='Objet manuel (optionnel)' />
         <input id='gameCManualPrice' type='number' min='1' step='1' placeholder='Prix réel en DH (optionnel)' />
       </div>
     </div>
-
-    <div id='gameDAdminConfig' class='mt' style='display:none'>
-      <div class='admin-actions'>
-        <button id='gameDStartBtn' class='secondary'>Lancer la chanson</button>
-        <button id='gameDNextSongBtn' class='secondary'>Chanson suivante</button>
-      </div>
-      <div id='gameDAnswers' class='mt' style='display:grid;gap:8px;'></div>
-    </div>
-
     <div class="admin-actions mt">
       <button id="launchGame">Lancer le jeu sélectionné</button>
       <button id="showResults" class="secondary">Montrer les résultats</button>
@@ -42,58 +33,131 @@
   </div>
 
   <div id="results" class="panel mt" style="display:none"><h3>Résultats</h3><ol id="top3"></ol><ul id="impactList" class="roster"></ul></div>
-  <div class="panel mt"><h3>Scores joueurs (clic pseudo = +1)</h3><ul id="roster" class="roster"></ul></div>
+  <div class="panel mt"><h3>Scores joueurs</h3><ul id="roster" class="roster"></ul></div>
 </section></div>
 <script src="/socket.io/socket.io.js"></script><script>
-const socket=io({transports:['websocket','polling']});
-let state=null, selectedGame='';
-const byId=id=>document.getElementById(id);
-const GAME_LABELS={GAME_A:'Jeu A — Susceptible de...',GAME_B:'Jeu B — 1 bonne réponse par question',GAME_C:'Jeu C — Le juste prix',GAME_D:'Jeu D — Blind test',GAME_F:'Jeu F — Vise bien ou fais toi des amis'};
+const socket=io({transports:['websocket','polling']});let state=null;let selectedGame='';const byId=id=>document.getElementById(id);
+const GAME_LABELS={GAME_A:'Jeu A — Susceptible de...',GAME_B:'Jeu B — 1 bonne réponse par question',GAME_C:'Jeu C — Le juste prix',GAME_D:'Jeu D',GAME_F:'Jeu F — Vise bien ou fais toi des amis'};
 const GAME_RULES={
-  GAME_A:{title:'Jeu A',rules:'Vote pour un joueur',points:'+1/-2 selon votes'},
-  GAME_B:{title:'Jeu B',rules:'Questions libres chronométrées',points:'+1 validation admin'},
-  GAME_C:{title:'Jeu C — Le juste prix',rules:'Estimation en dirham',points:'+3 premier, +1 second'},
-  GAME_D:{title:'Jeu D — Blind test',rules:'Trouver titre et artiste',points:'0,5 titre + 0,5 artiste'},
-  GAME_F:{title:'Jeu F',rules:'Tir à l\'arc',points:'Selon résultats'}
+  GAME_A:{title:'Jeu A — Susceptible de...',rules:'Chaque joueur vote pour un autre joueur.',points:'+1 si vote sur le top, -2 pour le plus cité.'},
+  GAME_B:{title:'Jeu B — 1 bonne réponse par question',rules:'Série de questions libres chronométrées.',points:'Correction admin : +1 point par réponse validée.'},
+  GAME_C:{title:'Jeu C — Le juste prix',rules:'Estimer le prix en DH le plus proche.',points:'+3 pour le plus proche, +1 pour le second.'},
+  GAME_D:{title:'Jeu D',rules:'Donner 3 réponses selon le thème.',points:'+1 par bonne réponse, bonus +2 si 3/3.'},
+  GAME_F:{title:'Jeu F',rules:'Tir à l’arc : viser, puis éventuellement casser une flèche.',points:'Selon résultats du tir.'}
 };
 function cmd(command,payload,cb){socket.emit('admin:command',{command,payload},cb);}
 function scoreControls(p){ return `<div class='score-ctl'><button data-score='-1' data-p='${p.playerId}' class='secondary'>-1</button><strong>${p.score}</strong><button data-score='1' data-p='${p.playerId}'>+1</button></div>`; }
 function arrowControls(p){ const arrows=Math.max(0,Math.min(2,Number(p.arrows??2))); return `<button class='secondary' data-restore-arrow='${p.playerId}'>🏹 ${arrows}/2 (+1)</button>`; }
-function fillGamePicker(s){ const gp=byId('gamePicker'); const cat=s.gameCatalog||{}; gp.innerHTML="<option value=''>— Sélectionner un jeu —</option>"+Object.keys(cat).map(g=>`<option value='${g}' ${selectedGame===g?'selected':''}>${GAME_LABELS[g]||g}</option>`).join(''); }
-function fillQuestionPicker(s){ const qp=byId('questionPicker'); if(!selectedGame){qp.style.display='none';qp.innerHTML='';return;} const list=(s.gameCatalog&&s.gameCatalog[selectedGame])||[]; qp.style.display=''; qp.innerHTML=list.map(q=>`<option value='${q.index}'>${q.index+1}. ${q.label}</option>`).join('')||"<option value='0'>1</option>"; }
-function renderGameInfo(){ const box=byId('gameInfo'); const g=GAME_RULES[selectedGame]; if(!g){box.style.display='none';box.innerHTML=''; return;} box.style.display=''; box.innerHTML=`<h4>${g.title}</h4><p><strong>Règle:</strong> ${g.rules}</p><p><strong>Points:</strong> ${g.points}</p>`; byId('gameBAdminConfig').style.display=selectedGame==='GAME_B'?'':'none'; byId('gameCAdminConfig').style.display=selectedGame==='GAME_C'?'':'none'; byId('gameDAdminConfig').style.display=selectedGame==='GAME_D'?'':'none'; cmd('GAME_PREVIEW',{game:selectedGame}); }
-function renderGameDAdmin(s){
-  const wrap=byId('gameDAnswers'); if(!wrap) return;
-  if(s.phase!=='GAME_D'){ wrap.innerHTML=''; return; }
-  const answers=s.gameState?.answers||{}; const awarded=s.gameState?.awardedByPid||{};
-  const rows=(s.rankings||[]).map((p)=>{ const a=answers[p.playerId]||{}; return `<button data-daward='${p.playerId}' style='text-align:left;color:#fff;background:${awarded[p.playerId]?'rgba(42,178,84,.35)':'rgba(0,0,0,.25)'}'><div><strong>${p.name}</strong> (+0,5)</div><div class='small'>Titre: ${a.title||'—'} | Artiste: ${a.artist||'—'}</div></button>`; }).join('');
-  wrap.innerHTML=rows || '<p class="small">Aucune réponse</p>';
-  wrap.querySelectorAll('[data-daward]').forEach((b)=>b.onclick=()=>cmd('GAME_D_AWARD_HALF',{playerId:b.dataset.daward}));
+function fmtImpact(v){ if(v>0) return `<span class='plus'>+${v}</span>`; if(v<0) return `<span class='minus'>${v}</span>`; return '0'; }
+function fillGamePicker(s){
+  const gp=byId('gamePicker'); const catalog=s.gameCatalog||{};
+  gp.innerHTML="<option value=''>— Sélectionner un jeu —</option>"+Object.keys(catalog).map((game)=>`<option value='${game}' ${selectedGame===game?'selected':''}>${GAME_LABELS[game]||game}</option>`).join('');
+}
+function fillQuestionPicker(s){
+  const game=selectedGame;
+  const qp=byId('questionPicker');
+  if(!game){ qp.style.display='none'; qp.innerHTML=''; return; }
+  const list=(s.gameCatalog&&s.gameCatalog[game])||[];
+  qp.style.display='';
+  qp.innerHTML=list.map((q)=>`<option value='${q.index}'>${q.index+1}. ${q.label}</option>`).join('')||"<option value='0'>1. Valeur par défaut</option>";
+}
+function renderGameInfo(){
+  const box=byId('gameInfo');
+  if(!selectedGame||!GAME_RULES[selectedGame]){ box.style.display='none'; box.innerHTML=''; return; }
+  const g=GAME_RULES[selectedGame];
+  box.style.display='';
+  box.innerHTML=`<h4>${g.title}</h4><p><strong>Règle :</strong> ${g.rules}</p><p><strong>Points :</strong> ${g.points}</p>`;
+  byId('gameBAdminConfig').style.display=selectedGame==='GAME_B'?'':'none';
+  byId('gameCAdminConfig').style.display=selectedGame==='GAME_C'?'':'none';
+}
+function renderGameBReview(s){
+  const block=byId('results'); const g=s.gameState||{};
+  if(s.phase!=='GAME_B'||g.stage!=='REVIEW') return;
+  const idx=Number(g.reviewIndex||0), total=(g.questions||[]).length;
+  const question=g.questions?.[idx]?.prompt||'Question'; const expected=g.questions?.[idx]?.answer||'';
+  const answers=(g.reviewAnswers||[]); block.style.display='';
+  block.innerHTML=`<h3>Correction Jeu B</h3><p><strong>Question ${idx+1}/${total} :</strong> ${question}</p><p class='small'>Bonne réponse: <strong>${expected||'—'}</strong></p><div class='admin-actions mt'><button id='gameBPrev' class='secondary' ${idx<=0?'disabled':''}>← Précédente</button><button id='gameBNext' class='secondary' ${idx>=total-1?'disabled':''}>Suivante →</button></div><div class='mt' style='display:grid;gap:8px;'>${answers.map((a)=>`<button class='${a.validated?'secondary':''}' data-gb-player='${a.playerId}' style='text-align:left;background:${a.validated?'rgba(42,178,84,.35)':''};color:#fff;'><div style='color:#c9c9c9;font-size:.9rem;'>${a.name}</div><div style='font-size:1.1rem;'>${a.answer||'—'}</div></button>`).join('')||'<p>Aucune réponse</p>'}</div>`;
+  byId('gameBPrev')?.addEventListener('click',()=>cmd('GAME_B_REVIEW_GOTO',{index:idx-1}));
+  byId('gameBNext')?.addEventListener('click',()=>cmd('GAME_B_REVIEW_GOTO',{index:idx+1}));
+  block.querySelectorAll('[data-gb-player]').forEach((b)=>b.addEventListener('click',()=>cmd('GAME_B_TOGGLE_VALIDATE',{playerId:b.dataset.gbPlayer})));
+}
+function gameBControls(){
+  return `
+    <div id='gameBAdminConfig' class='mt' style='display:${byId('gamePicker').value==='GAME_B'?'':'none'}'>
+      <h4 style='margin:.2rem 0 .5rem;'>Paramètres Jeu B</h4>
+      <div class='grid grid-2'>
+        <div>
+          <label for='gameBCount'>Questions à la suite</label>
+          <select id='gameBCount'>
+            <option value='1'>1</option><option value='2'>2</option><option value='5'>5</option><option value='10'>10</option><option value='15'>15</option>
+          </select>
+        </div>
+        <div>
+          <label for='gameBSeconds'>Secondes / question</label>
+          <select id='gameBSeconds'>
+            ${Array.from({length:16},(_,i)=>15+i).map((v)=>`<option value='${v}'>${v}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+    </div>
+  `;
+}
+function renderGameBReview(s){
+  const block=byId('results');
+  const g=s.gameState||{};
+  if(s.phase!=='GAME_B'||g.stage!=='REVIEW') return;
+  const idx=Number(g.reviewIndex||0);
+  const total=(g.questions||[]).length;
+  const question=g.questions?.[idx]?.prompt||'Question';
+  const expected=g.questions?.[idx]?.answer||'';
+  const answers=(g.reviewAnswers||[]);
+  block.style.display='';
+  block.innerHTML=`
+    <h3>Correction Jeu B</h3>
+    <p><strong>Question ${idx+1}/${total} :</strong> ${question}</p>
+    <p class='small'>Bonne réponse attendue : <strong>${expected||'—'}</strong></p>
+    <div class='admin-actions mt'>
+      <button id='gameBPrev' class='secondary' ${idx<=0?'disabled':''}>← Question précédente</button>
+      <button id='gameBNext' class='secondary' ${idx>=total-1?'disabled':''}>Question suivante →</button>
+    </div>
+    <div id='gameBAnswers' class='mt' style='display:grid;gap:8px;'>
+      ${answers.map((a)=>`<button class='${a.validated?'secondary':''}' data-gb-player='${a.playerId}' style='text-align:left;background:${a.validated?'rgba(42,178,84,.35)':''};color:#fff;'><div style='color:#c9c9c9;font-size:.9rem;'>${a.name}</div><div style='font-size:1.1rem;'>${a.answer||'—'}</div></button>`).join('')||'<p>Aucune réponse</p>'}
+    </div>
+  `;
+  byId('gameBPrev')?.addEventListener('click',()=>cmd('GAME_B_REVIEW_GOTO',{index:idx-1}));
+  byId('gameBNext')?.addEventListener('click',()=>cmd('GAME_B_REVIEW_GOTO',{index:idx+1}));
+  block.querySelectorAll('[data-gb-player]').forEach((b)=>b.addEventListener('click',()=>cmd('GAME_B_TOGGLE_VALIDATE',{playerId:b.dataset.gbPlayer})));
 }
 function renderResults(s){
-  if(s.phase==='GAME_B'&&s.gameState?.stage==='REVIEW'){ byId('results').style.display=''; byId('top3').innerHTML='<li>Correction Jeu B en cours</li>'; byId('impactList').innerHTML=''; return; }
+  if(s.phase==='GAME_B'&&s.gameState?.stage==='REVIEW'){ renderGameBReview(s); return; }
   const r=s.gameState?.results; if(!r){ byId('results').style.display='none'; return; }
-  byId('results').style.display=''; byId('top3').innerHTML=`<li>Résultats ${r.game||''}</li>`; byId('impactList').innerHTML=`<li><pre>${JSON.stringify(r,null,2)}</pre></li>`;
+  byId('results').style.display='';
+  if(r.game==='A'){
+    byId('top3').innerHTML=(r.top3||[]).map((t,idx)=>`<li>#${idx+1} - ${(s.rankings.find(p=>p.playerId===t.playerId)?.name)||t.playerId} (${t.votesCount} votes)</li>`).join('')||'<li>Aucun vote</li>';
+    byId('impactList').innerHTML=s.rankings.map((p)=>`<li><div><strong>${p.name}</strong></div><div>${fmtImpact((r.impacts||{})[p.playerId]||0)}</div></li>`).join('');
+  } else {
+    byId('top3').innerHTML=`<li>Résultats ${r.game||''}</li>`;
+    byId('impactList').innerHTML=`<li><pre>${JSON.stringify(r,null,2)}</pre></li>`;
+  }
 }
 function render(s){
   state=s; byId('phase').textContent=s.phase; byId('toggleTvMute').textContent=s.tvMuted?'TV: Démuter':'TV: Muter';
   fillGamePicker(s); fillQuestionPicker(s); renderGameInfo();
   const roster=byId('roster'); roster.innerHTML='';
-  s.rankings.forEach((p)=>{ const li=document.createElement('li'); li.innerHTML=`<div>#${p.rank} <strong data-click-point='${p.playerId}' style='cursor:pointer'>${p.name}</strong> <span class='small'>(${p.animal})</span> ${p.eliminated?'🪦':''}</div><div class='grid'>${arrowControls(p)}${scoreControls(p)}</div>`; roster.appendChild(li); });
+  s.rankings.forEach((p)=>{ const li=document.createElement('li'); li.innerHTML=`<div>#${p.rank} <strong>${p.name}</strong> <span class='small'>(${p.animal})</span> ${p.eliminated?'🪦':''}</div><div class='grid'>${arrowControls(p)}${scoreControls(p)}</div>`; roster.appendChild(li); });
+  const audioErr=byId('tvAudioError');
+  if(s.lastTvAudioError){ audioErr.style.display=''; audioErr.textContent=`⚠️ Audio TV: ${s.lastTvAudioError.reason} (${new Date(s.lastTvAudioError.at).toLocaleTimeString()})`; } else { audioErr.style.display='none'; audioErr.textContent=''; }
+  renderResults(s);
   roster.querySelectorAll('[data-score]').forEach((b)=>b.onclick=()=>cmd('UPDATE_SCORE',{playerId:b.dataset.p,delta:Number(b.dataset.score)}));
-  roster.querySelectorAll('[data-click-point]').forEach((b)=>b.onclick=()=>cmd('UPDATE_SCORE',{playerId:b.dataset.clickPoint,delta:1}));
   roster.querySelectorAll('[data-restore-arrow]').forEach((b)=>b.onclick=()=>cmd('RESTORE_ARROW',{playerId:b.dataset.restoreArrow}));
-  renderGameDAdmin(s); renderResults(s);
 }
-byId('gameBSeconds').innerHTML=Array.from({length:16},(_,i)=>15+i).map(v=>`<option value='${v}'>${v}</option>`).join('');
+byId('gameBSeconds').innerHTML=Array.from({length:16},(_,i)=>15+i).map((v)=>`<option value='${v}'>${v}</option>`).join('');
 byId('gamePicker').onchange=()=>{ selectedGame=byId('gamePicker').value; fillQuestionPicker(state||{}); renderGameInfo(); };
 byId('login').onclick=()=>socket.emit('admin:auth',{password:byId('pwd').value},(r)=>{if(!r?.ok)return alert('Mot de passe incorrect');byId('auth').style.display='none';byId('dash').style.display='';render(r.state);});
-byId('launchGame').onclick=()=>{ if(!selectedGame) return alert('Choisis un jeu'); cmd('LAUNCH_GAME',{game:selectedGame,questionIndex:Number(byId('questionPicker').value||0),count:Number(byId('gameBCount').value||1),seconds:Number(byId('gameBSeconds').value||20),manualItem:byId('gameCManualItem').value,manualPrice:Number(byId('gameCManualPrice').value||0)},(r)=>{if(!r?.ok) alert(r.error||'Launch impossible');}); };
+byId('launchGame').onclick=()=>{ if(!selectedGame) return alert('Choisis un jeu avant de lancer.'); cmd('LAUNCH_GAME',{game:selectedGame,questionIndex:Number(byId('questionPicker').value||0),count:Number(byId('gameBCount').value||1),seconds:Number(byId('gameBSeconds').value||20),manualItem:byId('gameCManualItem').value,manualPrice:Number(byId('gameCManualPrice').value||0)},(r)=>{if(!r?.ok) alert(r.error||'Launch impossible');}); };
 byId('showResults').onclick=()=>cmd('SHOW_RESULTS',{},(r)=>{if(!r?.ok) alert(r.error||'Action impossible');});
 byId('toggleTvMute').onclick=()=>cmd('SET_TV_MUTED',{muted:!state?.tvMuted});
 byId('resetGame').onclick=()=>{ if(confirm('Réinitialiser toute la partie ?')) cmd('RESET_GAME'); };
-byId('gameDStartBtn').onclick=()=>cmd('GAME_D_START');
-byId('gameDNextSongBtn').onclick=()=>cmd('GAME_D_NEXT_SONG');
-socket.on('game:state',render);
-socket.on('admin:revoked',()=>alert('Session admin reprise ailleurs'));
+socket.on('game:state',render); socket.on('admin:revoked',()=>alert('Session admin reprise ailleurs')); socket.on('admin:tv_audio_error',(e)=>{ const box=byId('tvAudioError'); box.style.display=''; box.textContent=`⚠️ Audio TV bloqué: ${e.reason}`; });
+byId('launchGame').insertAdjacentHTML('afterend',gameBControls());
 </script></body></html>

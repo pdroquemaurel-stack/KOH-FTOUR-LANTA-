@@ -151,9 +151,8 @@ button.secondary { background: linear-gradient(180deg, #6c7c66, #42503f); color:
   gap: clamp(8px, 1.2vh, 16px);
   overflow: hidden;
   padding-top: 400px;
-  position: relative;
 }
-.tv-series-info { text-align:center; font-weight:800; font-size:clamp(.95rem,1.6vw,1.3rem); color:#ffd89d; margin-top:-10px; }
+.tv-series-info { text-align:center; font-weight:800; font-size:clamp(1rem,2vw,1.6rem); color:#ffd89d; }
 .tv-question {
   width: 100%;
   min-height: 0;
@@ -169,9 +168,6 @@ button.secondary { background: linear-gradient(180deg, #6c7c66, #42503f); color:
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.tv-award-flash { text-align:center; font-weight:900; font-size:clamp(1.6rem,4vw,3.2rem); color:#fff; text-shadow:0 3px 18px rgba(0,0,0,.8); }
-.tv-award-flash .plus{color:#46e07b;}
-
 .tv-question-timer {
   justify-self: center;
   font-size: clamp(1rem, 1.8vw, 1.6rem);
@@ -198,7 +194,7 @@ button.danger { background: linear-gradient(180deg, #f07a7a, #b03232); color: #f
 .score-badge { background: rgba(8,10,9,.92); border: 1px solid rgba(255,216,157,.6); border-radius: 999px; padding: 10px 20px; font-weight: 900; font-size: clamp(1.6rem, 7vw, 2.8rem); text-align: center; }
 .plus { color: #63d28c; font-weight: 800; }
 .minus { color: #ff7d7d; font-weight: 800; }
-.tv-results { margin: 4px auto; width: min(1200px, 92vw); max-height: 40vh; overflow: auto; background: rgba(8,10,9,.6); border-radius: 10px; padding: 8px 12px; }
+.tv-results { margin: 4px auto; width: min(1200px, 92vw); max-height: 34vh; overflow: auto; background: rgba(8,10,9,.6); border-radius: 10px; padding: 8px 12px; }
 .tv-results.archery-results { max-height: none; overflow: visible; padding: 10px 14px; background: rgba(8,10,9,.72); }
 .tv-results h3 { margin: 8px 0; color: #ffd89d; }
 .tv-results ol, .tv-results ul { margin: 0; padding-left: 20px; display:grid; gap:4px; }
@@ -207,13 +203,12 @@ button.danger { background: linear-gradient(180deg, #f07a7a, #b03232); color: #f
 .tv-free-answer-card.validated { background: rgba(42,178,84,.35); border-color: rgba(94,230,145,.85); }
 .tv-free-answer-name { color:#b8b8b8; font-size:.9rem; margin-bottom:4px; }
 .tv-free-answer-text { color:#fff; font-size:1.15rem; font-weight:700; }
-.price-line-wrap{position:relative;margin:1rem 0 1.8rem;height:120px;max-width:100%;}
-.price-line-wrap.big{height:170px;overflow:hidden;}
+.price-line-wrap{position:relative;margin:1rem 0 1.8rem;height:120px;}
 .price-line{position:absolute;left:0;right:0;top:50%;height:4px;background:rgba(255,255,255,.35);border-radius:4px;}
 .price-dot,.price-real{position:absolute;top:50%;transform:translate(-50%,-50%);text-align:center;}
 .price-dot span{color:#7fd0ff;font-size:1.2rem;}
 .price-real span{color:#ff3b30;font-size:1.4rem;}
-.price-dot small,.price-real small{display:block;white-space:nowrap;font-size:1rem;font-weight:700;}
+.price-dot small,.price-real small{display:block;white-space:nowrap;font-size:.75rem;}
 
 
 .answer-validated {
@@ -299,7 +294,7 @@ body.join-page.archery-active .archery-arrows-bottom img { width: clamp(30px, 8v
 }
 
 @media (max-height: 820px) {
-  .tv-series-info { text-align:center; font-weight:800; font-size:clamp(.95rem,1.6vw,1.3rem); color:#ffd89d; margin-top:-10px; }
+  .tv-series-info { text-align:center; font-weight:800; font-size:clamp(1rem,2vw,1.6rem); color:#ffd89d; }
 .tv-question { font-size: clamp(1.1rem, 2.9vw, 2.6rem); }
   .tv-rule { font-size: clamp(.8rem, 1.45vw, 1rem); max-height: 8vh; }
   .tv-players-bar { max-height: 12vh; }
@@ -309,7 +304,7 @@ body.join-page.archery-active .archery-arrows-bottom img { width: clamp(30px, 8v
 
 @media (max-height: 680px) {
   .tv-layout { gap: 8px; padding: 8px; }
-  .tv-series-info { text-align:center; font-weight:800; font-size:clamp(.95rem,1.6vw,1.3rem); color:#ffd89d; margin-top:-10px; }
+  .tv-series-info { text-align:center; font-weight:800; font-size:clamp(1rem,2vw,1.6rem); color:#ffd89d; }
 .tv-question { font-size: clamp(1rem, 2.4vw, 2.1rem); }
   .tv-rule { max-height: 7vh; }
   .tv-results { max-height: 22vh; }
