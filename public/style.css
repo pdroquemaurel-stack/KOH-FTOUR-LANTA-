@@ -173,6 +173,11 @@ button.danger { background: linear-gradient(180deg, #f07a7a, #b03232); color: #f
 .tv-results.archery-results { max-height: none; overflow: visible; padding: 10px 14px; background: rgba(8,10,9,.72); }
 .tv-results h3 { margin: 8px 0; color: #ffd89d; }
 .tv-results ol, .tv-results ul { margin: 0; padding-left: 20px; display:grid; gap:4px; }
+.tv-free-answer-grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin-top:10px; }
+.tv-free-answer-card { background: rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.16); border-radius: 10px; padding: 10px; }
+.tv-free-answer-card.validated { background: rgba(42,178,84,.35); border-color: rgba(94,230,145,.85); }
+.tv-free-answer-name { color:#b8b8b8; font-size:.9rem; margin-bottom:4px; }
+.tv-free-answer-text { color:#fff; font-size:1.15rem; font-weight:700; }
 
 .score-bottom { position: sticky; bottom: 10px; margin: 14px auto 0; width: fit-content; }
 .error-msg { color: #ff7d7d; font-weight: 800; }

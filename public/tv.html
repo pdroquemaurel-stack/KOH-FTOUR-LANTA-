@@ -29,14 +29,18 @@ function reportAudioError(reason){
 }
 
 function rulesFor(s){
-  const map={GAME_A:'Vote pour un joueur. 1 vote unique.',GAME_B:'Trouve la bonne réponse le plus vite possible.',GAME_C:'Devine le juste prix le plus proche.',GAME_D:'Donne tes 3 meilleures réponses.',GAME_E:'Choisis PARTAGER ou TRAHIR.',GAME_F:'Vise verticalement puis horizontalement.',COUNCIL:'Vote contre un joueur.',FINAL:'Parie puis réponds à la question finale.'};
+  const map={GAME_A:'Vote pour un joueur. 1 vote unique.',GAME_B:'1 bonne réponse par question. Répondez librement.',GAME_C:'Devine le juste prix le plus proche.',GAME_D:'Donne tes 3 meilleures réponses.',GAME_E:'Choisis PARTAGER ou TRAHIR.',GAME_F:'Vise verticalement puis horizontalement.',COUNCIL:'Vote contre un joueur.',FINAL:'Parie puis réponds à la question finale.'};
   if(map[s.phase]) return map[s.phase];
   return '';
 }
 function questionFor(s){
   const g=s.gameState||{};
   if(s.phase==='GAME_A') return g.question||'Question en cours...';
-  if(s.phase==='GAME_B') return g.prompt||'Question en cours...';
+  if(s.phase==='GAME_B'){
+    if(g.stage==='QUESTION') return g.questions?.[g.currentIndex]?.prompt||'Question en cours...';
+    if(g.stage==='REVIEW') return g.questions?.[g.reviewIndex]?.prompt||'Correction en cours...';
+    return 'Question en cours...';
+  }
   if(s.phase==='GAME_C') return g.item?`Prix à estimer : ${g.item}`:'Question en cours...';
   if(s.phase==='GAME_D') return g.theme?`Thème : ${g.theme}`:'Question en cours...';
   if(s.phase==='GAME_F') return 'Vise bien ou fais toi des amis';
@@ -83,6 +87,11 @@ function renderResults(s){
     const noShot=(r.noShot||[]).length?`<p>❌ Sans tir (perdent 1 flèche): ${(r.noShot||[]).map((pid)=>nameById[pid]||pid).join(', ')}</p>`:'';
     resultsBlock.classList.add('archery-results');
     resultsBlock.innerHTML=`<h3>Résultats Tir à l'arc</h3><div class='archery-target'><img src='/Visuels/archery_target_board.png' alt='Cible'/>${shots}</div><p>🎯 Plus proche (participants): <strong>${closest}</strong></p><p>💥 Plus éloigné (participants): <strong>${farthest}</strong> (perd 1 flèche)</p>${noShot}${breakInfo}${winner}`;
+  } else if(r.game==='B' && r.mode==='manual_review') {
+    const idx=Number(s.gameState?.reviewIndex||0);
+    const current=r.questions?.[idx]||r.questions?.[0]||{question:'',expected:'',answers:[]};
+    const cards=(current.answers||[]).map((it)=>`<article class='tv-free-answer-card ${it.validated?'validated':''}'><div class='tv-free-answer-name'>${it.name}</div><div class='tv-free-answer-text'>${it.answer||'—'}</div></article>`).join('');
+    resultsBlock.innerHTML=`<h3>Jeu B — Correction ${idx+1}/${(r.questions||[]).length||1}</h3><p class='small'>Bonne réponse: <strong>${current.expected||'—'}</strong></p><div class='tv-free-answer-grid'>${cards||'<p>Aucune réponse</p>'}</div>`;
   } else {
     resultsBlock.classList.remove('archery-results');
     const pretty=JSON.stringify(r,(k,v)=>nameById[v]||v,2);
