@@ -5,8 +5,9 @@
   <div class="phase-banner">ÉTAPE ACTUELLE : <span id="phase">LOBBY</span></div>
 
   <div class="panel mt">
-    <h3>Choisir le jeu</h3>
-    <select id="gamePicker"><option value="GAME_A">Jeu A — Susceptible de...</option></select>
+    <h3>Choisir le jeu et la question</h3>
+    <select id="gamePicker"></select>
+    <select id="questionPicker" class="mt"></select>
     <div class="admin-actions mt">
       <button id="launchGame">Lancer le jeu sélectionné</button>
       <button id="showResults" class="secondary">Montrer les résultats</button>
@@ -28,11 +29,22 @@
 </section></div>
 <script src="/socket.io/socket.io.js"></script><script>
 const socket=io({transports:['websocket','polling']});let state=null;const byId=id=>document.getElementById(id);
+const GAME_LABELS={GAME_A:'Jeu A — Susceptible de...',GAME_B:'Jeu B',GAME_C:'Jeu C',GAME_D:'Jeu D'};
 function cmd(command,payload,cb){socket.emit('admin:command',{command,payload},cb);}
-function scoreControls(p){
-  return `<div class='score-ctl'><button data-score='-1' data-p='${p.playerId}' class='secondary'>-1</button><strong>${p.score}</strong><button data-score='1' data-p='${p.playerId}'>+1</button></div>`;
-}
+function scoreControls(p){ return `<div class='score-ctl'><button data-score='-1' data-p='${p.playerId}' class='secondary'>-1</button><strong>${p.score}</strong><button data-score='1' data-p='${p.playerId}'>+1</button></div>`; }
 function fmtImpact(v){ if(v>0) return `<span class='plus'>+${v}</span>`; if(v<0) return `<span class='minus'>${v}</span>`; return '0'; }
+function fillGamePicker(s){
+  const gp=byId('gamePicker'); const catalog=s.gameCatalog||{};
+  const previous=gp.value;
+  gp.innerHTML=Object.keys(catalog).map((game)=>`<option value='${game}'>${GAME_LABELS[game]||game}</option>`).join('')||"<option value='GAME_A'>Jeu A</option>";
+  if(previous && [...gp.options].some((o)=>o.value===previous)) gp.value=previous;
+}
+function fillQuestionPicker(s){
+  const game=byId('gamePicker').value||'GAME_A';
+  const qp=byId('questionPicker');
+  const list=(s.gameCatalog&&s.gameCatalog[game])||[];
+  qp.innerHTML=list.map((q)=>`<option value='${q.index}'>${q.index+1}. ${q.label}</option>`).join('')||"<option value='0'>1. Question par défaut</option>";
+}
 function renderResults(s){
   const r=s.gameState?.results;
   if(!r||r.game!=='A'||!s.resultsShown){ byId('results').style.display='none'; return; }
@@ -41,22 +53,17 @@ function renderResults(s){
   byId('impactList').innerHTML=s.rankings.map((p)=>`<li><div><strong>${p.name}</strong></div><div>${fmtImpact((r.impacts||{})[p.playerId]||0)}</div></li>`).join('');
 }
 function render(s){
-  state=s;
-  byId('phase').textContent=s.phase;
-  byId('toggleTvMute').textContent=s.tvMuted?'TV: Démuter':'TV: Muter';
+  state=s; byId('phase').textContent=s.phase; byId('toggleTvMute').textContent=s.tvMuted?'TV: Démuter':'TV: Muter';
+  fillGamePicker(s); fillQuestionPicker(s);
   const roster=byId('roster'); roster.innerHTML='';
-  s.rankings.forEach((p)=>{
-    const li=document.createElement('li');
-    li.innerHTML=`<div>#${p.rank} <strong>${p.name}</strong> <span class='small'>(${p.animal})</span> ${p.eliminated?'🪦':''}</div>${scoreControls(p)}`;
-    roster.appendChild(li);
-  });
+  s.rankings.forEach((p)=>{ const li=document.createElement('li'); li.innerHTML=`<div>#${p.rank} <strong>${p.name}</strong> <span class='small'>(${p.animal})</span> ${p.eliminated?'🪦':''}</div>${scoreControls(p)}`; roster.appendChild(li); });
   renderResults(s);
-
   roster.querySelectorAll('[data-score]').forEach((b)=>b.onclick=()=>cmd('UPDATE_SCORE',{playerId:b.dataset.p,delta:Number(b.dataset.score)}));
 }
 
+byId('gamePicker').onchange=()=>fillQuestionPicker(state||{});
 byId('login').onclick=()=>socket.emit('admin:auth',{password:byId('pwd').value},(r)=>{if(!r?.ok)return alert('Mot de passe incorrect');byId('auth').style.display='none';byId('dash').style.display='';render(r.state);});
-byId('launchGame').onclick=()=>cmd('LAUNCH_GAME',{game:byId('gamePicker').value},(r)=>{if(!r?.ok) alert(r.error||'Launch impossible');});
+byId('launchGame').onclick=()=>cmd('LAUNCH_GAME',{game:byId('gamePicker').value,questionIndex:Number(byId('questionPicker').value||0)},(r)=>{if(!r?.ok) alert(r.error||'Launch impossible');});
 byId('showResults').onclick=()=>cmd('SHOW_RESULTS',{},(r)=>{if(!r?.ok) alert(r.error||'Action impossible');});
 byId('toggleTvMute').onclick=()=>cmd('SET_TV_MUTED',{muted:!state?.tvMuted});
 byId('resetGame').onclick=()=>{ if(confirm('Réinitialiser toute la partie ?')) cmd('RESET_GAME'); };

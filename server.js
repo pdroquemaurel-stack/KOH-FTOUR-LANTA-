@@ -26,6 +26,15 @@ const CONFIG = {
   top3: readConfig('top3_themes.json', [])
 };
 
+function buildGameCatalog() {
+  return {
+    GAME_A: CONFIG.susceptibleQuestions.map((q, idx) => ({ index: idx, label: String(q || `Question ${idx + 1}`) })),
+    GAME_B: CONFIG.blindtest.map((q, idx) => ({ index: idx, label: String(q?.prompt || `Question ${idx + 1}`) })),
+    GAME_C: CONFIG.price.map((q, idx) => ({ index: idx, label: String(q?.item || `Question ${idx + 1}`) })),
+    GAME_D: CONFIG.top3.map((q, idx) => ({ index: idx, label: String(q?.theme || `Question ${idx + 1}`) }))
+  };
+}
+
 const FLOW = ['LOBBY', 'INTRO', 'GAME_A', 'RESULTS_A', 'GAME_B', 'RESULTS_B', 'GAME_C', 'RESULTS_C', 'GAME_D', 'RESULTS_D', 'GAME_E', 'RESULTS_E', 'COUNCIL', 'COUNCIL_RESULT', 'FINAL', 'FINAL_RESULT', 'END'];
 const TV_SCREENS = ['LOBBY', 'WAITING', 'PLACEHOLDER'];
 
@@ -109,7 +118,8 @@ function buildState() {
     rankings: rankPlayers(),
     gameState: SESSION.gameState,
     gameAProgress: gameAProgress(),
-    history: SESSION.history.slice(-10)
+    history: SESSION.history.slice(-10),
+    gameCatalog: buildGameCatalog()
   };
 }
 
@@ -151,17 +161,21 @@ function resumeTimer() {
   SESSION.phaseTimer.endsAt = now() + SESSION.phaseTimer.remainingMs;
 }
 
-function initPhaseState(phase) {
+function initPhaseState(phase, options = {}) {
   if (phase === 'GAME_A') {
-    SESSION.gameState = { key: 'GAME_A', index: 0, question: CONFIG.susceptibleQuestions[0] || '', answers: {}, completed: false };
+    const selectedIndex = Math.max(0, Number(options?.index || 0));
+    SESSION.gameState = { key: 'GAME_A', index: selectedIndex, question: CONFIG.susceptibleQuestions[selectedIndex] || '', answers: {}, completed: false };
   } else if (phase === 'GAME_B') {
-    SESSION.gameState = { key: 'GAME_B', index: 0, prompt: CONFIG.blindtest[0]?.prompt || '', options: CONFIG.blindtest[0]?.options || [], answer: CONFIG.blindtest[0]?.answer || '', answers: {}, completed: false };
+    const selectedIndex = Math.max(0, Number(options?.index || 0));
+    SESSION.gameState = { key: 'GAME_B', index: selectedIndex, prompt: CONFIG.blindtest[selectedIndex]?.prompt || '', options: CONFIG.blindtest[selectedIndex]?.options || [], answer: CONFIG.blindtest[selectedIndex]?.answer || '', answers: {}, completed: false };
   } else if (phase === 'GAME_C') {
-    const item = CONFIG.price[0] || { item: 'Item', price: 100 };
-    SESSION.gameState = { key: 'GAME_C', index: 0, item: item.item, realPrice: item.price, withoutOver: true, answers: {}, completed: false };
+    const selectedIndex = Math.max(0, Number(options?.index || 0));
+    const item = CONFIG.price[selectedIndex] || { item: 'Item', price: 100 };
+    SESSION.gameState = { key: 'GAME_C', index: selectedIndex, item: item.item, realPrice: item.price, withoutOver: true, answers: {}, completed: false };
   } else if (phase === 'GAME_D') {
-    const t = CONFIG.top3[0] || { theme: 'Thème', answers: [] };
-    SESSION.gameState = { key: 'GAME_D', index: 0, theme: t.theme, expected: t.answers, answers: {}, completed: false };
+    const selectedIndex = Math.max(0, Number(options?.index || 0));
+    const t = CONFIG.top3[selectedIndex] || { theme: 'Thème', answers: [] };
+    SESSION.gameState = { key: 'GAME_D', index: selectedIndex, theme: t.theme, expected: t.answers, answers: {}, completed: false };
   } else if (phase === 'GAME_E') {
     const ids = activePlayers().map((p) => p.playerId);
     const pairs = [];
@@ -415,10 +429,11 @@ io.on('connection', (socket) => {
     else if (command === 'TV_SCREEN') { if (TV_SCREENS.includes(payload?.screen)) SESSION.phase = payload.screen; }
     else if (command === 'LAUNCH_GAME') {
       const game = String(payload?.game || 'GAME_A');
-      if (game !== 'GAME_A') return ack?.({ ok: false, error: 'POC_ONLY_GAME_A' });
+      const allowedGames = ['GAME_A', 'GAME_B', 'GAME_C', 'GAME_D'];
+      if (!allowedGames.includes(game)) return ack?.({ ok: false, error: 'UNSUPPORTED_GAME' });
       SESSION.started = true;
-      setPhase('GAME_A');
-      initPhaseState('GAME_A');
+      setPhase(game);
+      initPhaseState(game, { index: Number(payload?.questionIndex || 0) });
     }
     else if (command === 'UPDATE_SCORE') {
       const pid = String(payload?.playerId || '');
@@ -478,7 +493,9 @@ io.on('connection', (socket) => {
 
     if (SESSION.phase === 'GAME_A' && type === 'A_VOTE') {
       if (SESSION.gameState.answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
-      SESSION.gameState.answers[pid] = payload?.targetPlayerId || '';
+      const target = payload?.targetPlayerId || '';
+      if (target === pid) return ack?.({ ok: false, error: 'NO_SELF_VOTE' });
+      SESSION.gameState.answers[pid] = target;
     } else if (SESSION.phase === 'GAME_B' && type === 'B_ANSWER') {
       if (SESSION.gameState.answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
       SESSION.gameState.answers[pid] = { answer: String(payload?.answer || ''), at: now() };
