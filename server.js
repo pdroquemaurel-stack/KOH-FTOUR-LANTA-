@@ -361,6 +361,19 @@ io.on('connection', (socket) => {
     else if (command === 'SET_IMMUNITY') { SESSION.immunityPlayerId = payload?.playerId || null; }
     else if (command === 'SET_COUNCIL_MODE') { SESSION.councilMode = payload?.mode === 'PENALTY' ? 'PENALTY' : 'ELIMINATION'; }
     else if (command === 'TV_SCREEN') { if (TV_SCREENS.includes(payload?.screen)) SESSION.phase = payload.screen; }
+    else if (command === 'UPDATE_SCORE') {
+      const pid = String(payload?.playerId || '');
+      const p = SESSION.players.get(pid);
+      if (!p) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
+      ensurePlayerScore(p);
+      if (typeof payload?.delta !== 'undefined') {
+        p.score += Number(payload.delta) || 0;
+      } else if (typeof payload?.score !== 'undefined') {
+        p.score = Number(payload.score) || 0;
+      } else {
+        return ack?.({ ok: false, error: 'INVALID_SCORE_PAYLOAD' });
+      }
+    }
     touch();
     broadcastState();
     ack?.({ ok: true });

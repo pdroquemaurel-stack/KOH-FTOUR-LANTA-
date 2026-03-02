@@ -82,3 +82,8 @@ Server -> clients
 4. Vérifier lock answers (actions rejetées).
 5. Vérifier Council immunity (votes ignorés contre immunisé).
 6. Vérifier Finale (seuls finalistes peuvent répondre).
+
+## Ajustements UI
+- Admin simplifié: phase actuelle visible en grand + commandes essentielles (Start/Next/Pause-Resume).
+- Admin peut modifier les scores en direct (+1/-1 ou valeur directe).
+- TV immersive: fond `/public/Visuels/tv_background_main_1920x1080.png`, question et règles affichées en très grand, noms joueurs en bas.
