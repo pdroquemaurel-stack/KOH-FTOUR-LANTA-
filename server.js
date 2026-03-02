@@ -22,6 +22,7 @@ function readConfig(name, fallback) {
 const CONFIG = {
   susceptibleQuestions: readConfig('susceptible_questions.json', []),
   blindtest: readConfig('blindtest_bank.json', []),
+  freeQuestions: readConfig(path.join('..', 'public', 'free-questions.json'), []),
   price: readConfig('priceisright_items.json', []),
   top3: readConfig('top3_themes.json', [])
 };
@@ -29,9 +30,9 @@ const CONFIG = {
 function buildGameCatalog() {
   return {
     GAME_A: CONFIG.susceptibleQuestions.map((q, idx) => ({ index: idx, label: String(q || `Question ${idx + 1}`) })),
-    GAME_B: CONFIG.blindtest.map((q, idx) => ({ index: idx, label: String(q?.prompt || `Question ${idx + 1}`) })),
-    GAME_C: CONFIG.price.map((q, idx) => ({ index: idx, label: String(q?.item || `Question ${idx + 1}`) })),
-    GAME_D: CONFIG.top3.map((q, idx) => ({ index: idx, label: String(q?.theme || `Question ${idx + 1}`) })),
+    GAME_B: [{ index: 0, label: '1 bonne réponse par question' }],
+    GAME_C: CONFIG.price.map((q, idx) => ({ index: idx, label: String(q?.item || `Objet ${idx + 1}`) })),
+    GAME_D: CONFIG.blindtest.map((q, idx) => ({ index: idx, label: String(q?.prompt || `Chanson ${idx + 1}`) })),
     GAME_F: [{ index: 0, label: 'Vise bien ou fais toi des amis' }]
   };
 }
@@ -61,8 +62,23 @@ const SESSION = {
   paused: false,
   resultsShown: false,
   tvMuted: false,
-  lastTvAudioError: null
+  lastTvAudioError: null,
+  previewGame: null,
+  lastAward: null
 };
+
+let gameBTimer = null;
+
+function gameBrief(game){
+  const map={
+    GAME_A:{title:'Jeu A — Susceptible de...',rules:'Vote pour un joueur',points:'+1 vote sur top, -2 plus cité'},
+    GAME_B:{title:'Jeu B — 1 bonne réponse par question',rules:'Questions libres chronométrées',points:'+1 par réponse validée admin'},
+    GAME_C:{title:'Jeu C — Le juste prix',rules:'Estimer le prix en DH',points:'+3 premier, +1 second'},
+    GAME_D:{title:'Jeu D — Blind test',rules:'Trouver titre et artiste',points:'0,5 point titre + 0,5 point artiste'},
+    GAME_F:{title:'Jeu F — Tir à l\'arc',rules:'Viser puis casser une flèche',points:'Selon résultats'}
+  };
+  return map[game]||{title:game,rules:'',points:''};
+}
 
 function now() { return Date.now(); }
 function nowIso() { return new Date().toISOString(); }
@@ -80,6 +96,10 @@ function gameProgress() {
   const answeredSet = new Set();
 
   if (SESSION.gameState.answers) Object.keys(SESSION.gameState.answers).forEach((pid) => answeredSet.add(pid));
+  if (SESSION.phase === 'GAME_B' && SESSION.gameState?.answersByQuestion && typeof SESSION.gameState?.currentIndex === 'number') {
+    const bucket = SESSION.gameState.answersByQuestion[SESSION.gameState.currentIndex] || {};
+    Object.keys(bucket).forEach((pid) => answeredSet.add(pid));
+  }
   if (SESSION.gameState.choices) Object.keys(SESSION.gameState.choices).forEach((pid) => answeredSet.add(pid));
   if (SESSION.gameState.votes) Object.keys(SESSION.gameState.votes).forEach((pid) => answeredSet.add(pid));
   if (SESSION.phase === 'GAME_F' && SESSION.gameState.shots) {
@@ -148,7 +168,9 @@ function buildState() {
     gameAProgress: gameProgress(),
     gameProgress: gameProgress(),
     history: SESSION.history.slice(-10),
-    gameCatalog: buildGameCatalog()
+    gameCatalog: buildGameCatalog(),
+    previewGame: SESSION.previewGame || null,
+    lastAward: SESSION.lastAward || null
   };
 }
 
@@ -160,11 +182,14 @@ function publishResults(payload) {
 }
 
 function setPhase(phase) {
+  if (SESSION.phase === 'GAME_B' && phase !== 'GAME_B') clearGameBTimer();
   SESSION.phase = phase;
   SESSION.phaseIndex = FLOW.indexOf(phase);
   SESSION.phaseStartedAt = nowIso();
   SESSION.answerLocked = false;
   SESSION.paused = false;
+  SESSION.previewGame = null;
+  SESSION.lastAward = null;
   SESSION.phaseTimer = { running: false, endsAt: null, remainingMs: 0 };
   SESSION.resultsShown = false;
 }
@@ -195,16 +220,39 @@ function initPhaseState(phase, options = {}) {
     const selectedIndex = Math.max(0, Number(options?.index || 0));
     SESSION.gameState = { key: 'GAME_A', index: selectedIndex, question: CONFIG.susceptibleQuestions[selectedIndex] || '', answers: {}, completed: false };
   } else if (phase === 'GAME_B') {
-    const selectedIndex = Math.max(0, Number(options?.index || 0));
-    SESSION.gameState = { key: 'GAME_B', index: selectedIndex, prompt: CONFIG.blindtest[selectedIndex]?.prompt || '', options: CONFIG.blindtest[selectedIndex]?.options || [], answer: CONFIG.blindtest[selectedIndex]?.answer || '', answers: {}, completed: false };
+    const count = Math.max(1, Math.min(15, Number(options?.count || 1)));
+    const seconds = Math.max(15, Math.min(30, Number(options?.seconds || 20)));
+    const bank = Array.isArray(CONFIG.freeQuestions) ? CONFIG.freeQuestions : [];
+    const shuffled = [...bank].sort(() => Math.random() - 0.5);
+    const picked = shuffled.slice(0, Math.min(count, shuffled.length));
+    SESSION.gameState = {
+      key: 'GAME_B',
+      title: '1 bonne réponse par question',
+      stage: 'QUESTION',
+      questions: picked.map((q, idx) => ({
+        index: idx,
+        prompt: String(q?.q || `Question ${idx + 1}`),
+        answer: String(q?.a || '')
+      })),
+      secondsPerQuestion: seconds,
+      currentIndex: -1,
+      reviewIndex: 0,
+      answersByQuestion: {},
+      completed: false
+    };
+    advanceGameBQuestion();
   } else if (phase === 'GAME_C') {
     const selectedIndex = Math.max(0, Number(options?.index || 0));
-    const item = CONFIG.price[selectedIndex] || { item: 'Item', price: 100 };
-    SESSION.gameState = { key: 'GAME_C', index: selectedIndex, item: item.item, realPrice: item.price, withoutOver: true, answers: {}, completed: false };
+    const manualItem = String(options?.manualItem || '').trim();
+    const manualPrice = Number(options?.manualPrice);
+    const baseItem = CONFIG.price[selectedIndex] || { item: 'Objet mystère', price: 100 };
+    const item = manualItem ? { item: manualItem, price: Number.isFinite(manualPrice) ? manualPrice : baseItem.price } : baseItem;
+    SESSION.gameState = { key: 'GAME_C', index: selectedIndex, item: item.item, realPrice: Number(item.price) || 0, withoutOver: true, answers: {}, completed: false };
   } else if (phase === 'GAME_D') {
     const selectedIndex = Math.max(0, Number(options?.index || 0));
-    const t = CONFIG.top3[selectedIndex] || { theme: 'Thème', answers: [] };
-    SESSION.gameState = { key: 'GAME_D', index: selectedIndex, theme: t.theme, expected: t.answers, answers: {}, completed: false };
+    const bank = Array.isArray(CONFIG.blindtest) ? CONFIG.blindtest : [];
+    const q = bank[selectedIndex] || { prompt: 'Blind test', answer: '' };
+    SESSION.gameState = { key: 'GAME_D', stage: 'PREVIEW', index: selectedIndex, prompt: q.prompt || 'Blind test', answer: String(q.answer||''), answers: {}, awardedByPid: {}, completed: false };
   } else if (phase === 'GAME_E') {
     const ids = activePlayers().map((p) => p.playerId);
     const pairs = [];
@@ -228,6 +276,66 @@ function initPhaseState(phase, options = {}) {
   } else {
     SESSION.gameState = { key: phase };
   }
+}
+
+function clearGameBTimer() {
+  if (gameBTimer) {
+    clearTimeout(gameBTimer);
+    gameBTimer = null;
+  }
+}
+
+function serializeGameBAnswers(index) {
+  const out = [];
+  const bucket = SESSION.gameState?.answersByQuestion?.[index] || {};
+  for (const [pid, rec] of Object.entries(bucket)) {
+    const name = SESSION.players.get(pid)?.name || pid;
+    out.push({ playerId: pid, name, answer: rec.answer || '', validated: !!rec.validated, at: rec.at || 0 });
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
+function setGameBReview(index) {
+  const qCount = SESSION.gameState.questions.length;
+  const next = Math.max(0, Math.min(qCount - 1, Number(index || 0)));
+  SESSION.gameState.reviewIndex = next;
+  SESSION.gameState.stage = 'REVIEW';
+  SESSION.gameState.completed = true;
+  SESSION.gameState.reviewAnswers = serializeGameBAnswers(next);
+}
+
+function enterGameBReview() {
+  clearGameBTimer();
+  if (!SESSION.gameState?.questions?.length) return;
+  setGameBReview(0);
+  SESSION.answerLocked = true;
+  SESSION.resultsShown = true;
+}
+
+function advanceGameBQuestion() {
+  if (SESSION.phase !== 'GAME_B') return;
+  const g = SESSION.gameState || {};
+  if (!Array.isArray(g.questions) || !g.questions.length) return;
+  const next = g.currentIndex + 1;
+  if (next >= g.questions.length) {
+    enterGameBReview();
+    touch();
+    broadcastState();
+    return;
+  }
+  clearGameBTimer();
+  g.currentIndex = next;
+  g.stage = 'QUESTION';
+  g.questionStartedAt = nowIso();
+  g.currentAnswers = serializeGameBAnswers(next);
+  startTimer(g.secondsPerQuestion);
+  gameBTimer = setTimeout(() => {
+    if (SESSION.phase !== 'GAME_B' || SESSION.gameState?.stage !== 'QUESTION') return;
+    advanceGameBQuestion();
+  }, g.secondsPerQuestion * 1000);
+  touch();
+  broadcastState();
 }
 
 function resolveGameA() {
@@ -261,7 +369,10 @@ function resolveGameA() {
 function showResultsCurrentPhase() {
   if (SESSION.resultsShown) return;
   if (SESSION.phase === 'GAME_A') resolveGameA();
-  else if (SESSION.phase === 'GAME_B') resolveGameB();
+  else if (SESSION.phase === 'GAME_B') {
+    if (SESSION.gameState?.stage === 'QUESTION') enterGameBReview();
+    resolveGameB();
+  }
   else if (SESSION.phase === 'GAME_C') resolveGameC();
   else if (SESSION.phase === 'GAME_D') resolveGameD();
   else if (SESSION.phase === 'GAME_E') resolveGameERound();
@@ -279,6 +390,7 @@ function showResultsCurrentPhase() {
 }
 
 function resetSession() {
+  clearGameBTimer();
   SESSION.players.clear();
   SESSION.socketsByPlayerId.clear();
   SESSION.phase = 'LOBBY';
@@ -292,22 +404,24 @@ function resetSession() {
   SESSION.immunityPlayerId = null;
   SESSION.started = false;
   SESSION.paused = false;
+  SESSION.previewGame = null;
+  SESSION.lastAward = null;
 }
 
 function resolveGameB() {
-  const a = SESSION.gameState.answers;
-  const correct = norm(SESSION.gameState.answer);
-  const entries = Object.entries(a).filter(([, v]) => norm(v.answer) === correct).sort((x, y) => x[1].at - y[1].at);
-  entries.forEach(([pid], idx) => {
-    const p = SESSION.players.get(pid);
-    if (!p) return;
-    ensurePlayerScore(p);
-    p.score += 2;
-    if (idx === 0) p.score += 1;
-  });
-  const payload = { game: 'B', correct, winners: entries.map(([pid]) => pid) };
+  const g = SESSION.gameState || {};
+  const payload = {
+    game: 'B',
+    mode: 'manual_review',
+    questions: (g.questions || []).map((q, idx) => ({
+      index: idx,
+      question: q.prompt,
+      expected: q.answer,
+      answers: serializeGameBAnswers(idx)
+    }))
+  };
   SESSION.gameState.results = payload;
-  SESSION.history.push({ at: nowIso(), game: 'B', correct, winners: payload.winners });
+  SESSION.history.push({ at: nowIso(), game: 'B', reviewed: payload.questions.length });
   publishResults(payload);
 }
 
@@ -333,21 +447,9 @@ function resolveGameC() {
 }
 
 function resolveGameD() {
-  const expected = (SESSION.gameState.expected || []).map(norm);
-  const results = {};
-  Object.entries(SESSION.gameState.answers).forEach(([pid, arr]) => {
-    const guessed = (arr || []).map(norm);
-    const hit = guessed.filter((x) => expected.includes(x)).length;
-    const p = SESSION.players.get(pid);
-    if (!p) return;
-    ensurePlayerScore(p);
-    p.score += hit;
-    if (hit >= 3) p.score += 2;
-    results[pid] = hit;
-  });
-  const payload = { game: 'D', expected, results };
+  const payload = { game: 'D', mode: 'blindtest', prompt: SESSION.gameState.prompt || '', answers: SESSION.gameState.answers || {}, awardedByPid: SESSION.gameState.awardedByPid || {} };
   SESSION.gameState.results = payload;
-  SESSION.history.push({ at: nowIso(), game: 'D', expected, results });
+  SESSION.history.push({ at: nowIso(), game: 'D', prompt: payload.prompt });
   publishResults(payload);
 }
 
@@ -546,7 +648,40 @@ io.on('connection', (socket) => {
       if (!allowedGames.includes(game)) return ack?.({ ok: false, error: 'UNSUPPORTED_GAME' });
       SESSION.started = true;
       setPhase(game);
-      initPhaseState(game, { index: Number(payload?.questionIndex || 0) });
+      initPhaseState(game, {
+        index: Number(payload?.questionIndex || 0),
+        count: Number(payload?.count || 1),
+        seconds: Number(payload?.seconds || 20),
+        manualItem: String(payload?.manualItem || ''),
+        manualPrice: Number(payload?.manualPrice)
+      });
+      SESSION.previewGame = { game, ...gameBrief(game) };
+      if (game !== 'GAME_D') SESSION.previewGame = null;
+    }
+    else if (command === 'GAME_B_REVIEW_GOTO') {
+      if (SESSION.phase !== 'GAME_B') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      if (!Array.isArray(SESSION.gameState?.questions) || !SESSION.gameState.questions.length) return ack?.({ ok: false, error: 'NO_QUESTIONS' });
+      setGameBReview(Number(payload?.index || 0));
+      resolveGameB();
+    }
+    else if (command === 'GAME_B_TOGGLE_VALIDATE') {
+      if (SESSION.phase !== 'GAME_B') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      if (SESSION.gameState?.stage !== 'REVIEW') return ack?.({ ok: false, error: 'NOT_IN_REVIEW' });
+      const qIdx = SESSION.gameState.reviewIndex;
+      const pid = String(payload?.playerId || '');
+      if (!pid) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
+      const bucket = SESSION.gameState.answersByQuestion[qIdx] || {};
+      const rec = bucket[pid] || { answer: '', at: 0, validated: false };
+      rec.validated = !rec.validated;
+      bucket[pid] = rec;
+      SESSION.gameState.answersByQuestion[qIdx] = bucket;
+      const player = SESSION.players.get(pid);
+      if (player) {
+        ensurePlayerScore(player);
+        player.score = Math.max(0, player.score + (rec.validated ? 1 : -1));
+      }
+      SESSION.gameState.reviewAnswers = serializeGameBAnswers(qIdx);
+      resolveGameB();
     }
     else if (command === 'RESTORE_ARROW') {
       const pid = String(payload?.playerId || '');
@@ -567,6 +702,40 @@ io.on('connection', (socket) => {
       } else {
         return ack?.({ ok: false, error: 'INVALID_SCORE_PAYLOAD' });
       }
+    }
+    else if (command === 'GAME_PREVIEW') {
+      const game = String(payload?.game || '');
+      SESSION.previewGame = game ? { game, ...gameBrief(game) } : null;
+    }
+    else if (command === 'GAME_D_START') {
+      if (SESSION.phase !== 'GAME_D') return ack?.({ ok:false, error:'INVALID_PHASE' });
+      SESSION.gameState.stage = 'PLAYING';
+      SESSION.previewGame = null;
+    }
+    else if (command === 'GAME_D_NEXT_SONG') {
+      if (SESSION.phase !== 'GAME_D') return ack?.({ ok:false, error:'INVALID_PHASE' });
+      const bank = Array.isArray(CONFIG.blindtest) ? CONFIG.blindtest : [];
+      const next = (Number(SESSION.gameState.index||0) + 1) % Math.max(1, bank.length || 1);
+      const q = bank[next] || { prompt:'Blind test', answer:'' };
+      SESSION.gameState.index = next;
+      SESSION.gameState.prompt = q.prompt || 'Blind test';
+      SESSION.gameState.answer = String(q.answer||'');
+      SESSION.gameState.answers = {};
+      SESSION.gameState.awardedByPid = {};
+      SESSION.gameState.stage = 'PREVIEW';
+      SESSION.previewGame = { game:'GAME_D', ...gameBrief('GAME_D') };
+      SESSION.lastAward = null;
+    }
+    else if (command === 'GAME_D_AWARD_HALF') {
+      if (SESSION.phase !== 'GAME_D') return ack?.({ ok:false, error:'INVALID_PHASE' });
+      const pid=String(payload?.playerId||'');
+      const player=SESSION.players.get(pid);
+      if(!player) return ack?.({ok:false,error:'PLAYER_NOT_FOUND'});
+      ensurePlayerScore(player);
+      player.score += 0.5;
+      SESSION.gameState.awardedByPid = SESSION.gameState.awardedByPid || {};
+      SESSION.gameState.awardedByPid[pid] = true;
+      SESSION.lastAward = { at: nowIso(), playerId: pid, name: player.name, delta: 0.5 };
     }
     else if (command === 'SHOW_RESULTS') {
       showResultsCurrentPhase();
@@ -617,14 +786,24 @@ io.on('connection', (socket) => {
       if (target === pid) return ack?.({ ok: false, error: 'NO_SELF_VOTE' });
       SESSION.gameState.answers[pid] = target;
     } else if (SESSION.phase === 'GAME_B' && type === 'B_ANSWER') {
-      if (SESSION.gameState.answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
-      SESSION.gameState.answers[pid] = { answer: String(payload?.answer || ''), at: now() };
+      const g = SESSION.gameState || {};
+      if (g.stage !== 'QUESTION') return ack?.({ ok: false, error: 'PHASE_LOCKED' });
+      const qIdx = g.currentIndex;
+      if (qIdx < 0) return ack?.({ ok: false, error: 'NO_ACTIVE_QUESTION' });
+      const answers = g.answersByQuestion[qIdx] || {};
+      answers[pid] = {
+        answer: String(payload?.answer || '').slice(0, 240),
+        at: now(),
+        validated: !!answers[pid]?.validated
+      };
+      g.answersByQuestion[qIdx] = answers;
+      g.currentAnswers = serializeGameBAnswers(qIdx);
     } else if (SESSION.phase === 'GAME_C' && type === 'C_GUESS') {
       if (SESSION.gameState.answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
       SESSION.gameState.answers[pid] = Number(payload?.value);
-    } else if (SESSION.phase === 'GAME_D' && type === 'D_TOP3') {
-      if (SESSION.gameState.answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
-      SESSION.gameState.answers[pid] = Array.isArray(payload?.answers) ? payload.answers.slice(0, 3) : [];
+    } else if (SESSION.phase === 'GAME_D' && type === 'D_BLIND') {
+      if (SESSION.gameState.stage !== 'PLAYING') return ack?.({ ok:false, error:'PHASE_LOCKED' });
+      SESSION.gameState.answers[pid] = { title: String(payload?.title||'').slice(0,120), artist: String(payload?.artist||'').slice(0,120) };
     } else if (SESSION.phase === 'GAME_E' && type === 'E_CHOICE') {
       if (SESSION.gameState.choices[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
       SESSION.gameState.choices[pid] = payload?.choice === 'BETRAY' ? 'BETRAY' : 'SHARE';
