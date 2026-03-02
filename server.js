@@ -476,13 +476,19 @@ function serveFile(res, filePath) {
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname;
+  let decodedPathname = pathname;
+  try {
+    decodedPathname = decodeURIComponent(pathname);
+  } catch {
+    return sendJson(res, 400, { error: 'Bad Request' });
+  }
   if (pathname === '/healthz') return sendJson(res, 200, { ok: true, phase: SESSION.phase });
   if (pathname === '/' || pathname === '/index.html') return serveFile(res, path.join(publicDir, 'index.html'));
   if (pathname === '/admin') return serveFile(res, path.join(publicDir, 'admin.html'));
   if (pathname === '/join') return serveFile(res, path.join(publicDir, 'join.html'));
   if (pathname === '/tv') return serveFile(res, path.join(publicDir, 'tv.html'));
-  const fp = path.join(publicDir, pathname.replace(/^\/+/, ''));
-  if (!fp.startsWith(publicDir)) return sendJson(res, 403, { error: 'Forbidden' });
+  const fp = path.resolve(publicDir, `.${decodedPathname}`);
+  if (fp !== publicDir && !fp.startsWith(`${publicDir}${path.sep}`)) return sendJson(res, 403, { error: 'Forbidden' });
   if (fs.existsSync(fp)) return serveFile(res, fp);
   return sendJson(res, 404, { error: 'Not found' });
 });
