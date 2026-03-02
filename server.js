@@ -71,11 +71,22 @@ function touch() { SESSION.updatedAt = nowIso(); }
 function phaseAllowsActions() { return SESSION.started && !SESSION.paused && !SESSION.answerLocked; }
 function activePlayers() { return [...SESSION.players.values()].filter((p) => !p.eliminated); }
 
-function gameAProgress() {
-  if (SESSION.phase !== 'GAME_A' || !SESSION.gameState || !SESSION.gameState.answers) return { answeredPlayerIds: [], pendingPlayerIds: [] };
+function gameProgress() {
+  if (!SESSION.phase?.startsWith('GAME_') && SESSION.phase !== 'COUNCIL' && SESSION.phase !== 'FINAL') return { answeredPlayerIds: [], pendingPlayerIds: [] };
+  if (!SESSION.gameState) return { answeredPlayerIds: [], pendingPlayerIds: [] };
   const alive = activePlayers().map((p) => p.playerId);
-  const answered = alive.filter((pid) => Boolean(SESSION.gameState.answers[pid]));
-  const pending = alive.filter((pid) => !SESSION.gameState.answers[pid]);
+  const answeredSet = new Set();
+
+  if (SESSION.gameState.answers) Object.keys(SESSION.gameState.answers).forEach((pid) => answeredSet.add(pid));
+  if (SESSION.gameState.choices) Object.keys(SESSION.gameState.choices).forEach((pid) => answeredSet.add(pid));
+  if (SESSION.gameState.votes) Object.keys(SESSION.gameState.votes).forEach((pid) => answeredSet.add(pid));
+
+  const trackable = SESSION.phase === 'FINAL' && Array.isArray(SESSION.gameState.finalists)
+    ? alive.filter((pid) => SESSION.gameState.finalists.includes(pid))
+    : alive;
+
+  const answered = trackable.filter((pid) => answeredSet.has(pid));
+  const pending = trackable.filter((pid) => !answeredSet.has(pid));
   return { answeredPlayerIds: answered, pendingPlayerIds: pending };
 }
 
@@ -117,7 +128,8 @@ function buildState() {
     playerCount: SESSION.players.size,
     rankings: rankPlayers(),
     gameState: SESSION.gameState,
-    gameAProgress: gameAProgress(),
+    gameAProgress: gameProgress(),
+    gameProgress: gameProgress(),
     history: SESSION.history.slice(-10),
     gameCatalog: buildGameCatalog()
   };
@@ -225,6 +237,12 @@ function resolveGameA() {
 function showResultsCurrentPhase() {
   if (SESSION.resultsShown) return;
   if (SESSION.phase === 'GAME_A') resolveGameA();
+  else if (SESSION.phase === 'GAME_B') resolveGameB();
+  else if (SESSION.phase === 'GAME_C') resolveGameC();
+  else if (SESSION.phase === 'GAME_D') resolveGameD();
+  else if (SESSION.phase === 'GAME_E') resolveGameERound();
+  else if (SESSION.phase === 'COUNCIL') resolveCouncil();
+  else if (SESSION.phase === 'FINAL') resolveFinal();
   else return;
   SESSION.answerLocked = true;
   SESSION.resultsShown = true;
@@ -257,8 +275,10 @@ function resolveGameB() {
     p.score += 2;
     if (idx === 0) p.score += 1;
   });
-  SESSION.history.push({ at: nowIso(), game: 'B', correct, winners: entries.map(([pid]) => pid) });
-  publishResults({ game: 'B', correct, winners: entries.map(([pid]) => pid) });
+  const payload = { game: 'B', correct, winners: entries.map(([pid]) => pid) };
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), game: 'B', correct, winners: payload.winners });
+  publishResults(payload);
 }
 
 function resolveGameC() {
@@ -276,8 +296,10 @@ function resolveGameC() {
   });
   if (first && SESSION.players.get(first)) SESSION.players.get(first).score += 3;
   if (second && SESSION.players.get(second)) SESSION.players.get(second).score += 1;
+  const payload = { game: 'C', real, first, second, answers: valid };
+  SESSION.gameState.results = payload;
   SESSION.history.push({ at: nowIso(), game: 'C', real, first, second });
-  publishResults({ game: 'C', real, first, second, answers: valid });
+  publishResults(payload);
 }
 
 function resolveGameD() {
@@ -293,8 +315,10 @@ function resolveGameD() {
     if (hit >= 3) p.score += 2;
     results[pid] = hit;
   });
+  const payload = { game: 'D', expected, results };
+  SESSION.gameState.results = payload;
   SESSION.history.push({ at: nowIso(), game: 'D', expected, results });
-  publishResults({ game: 'D', expected, results });
+  publishResults(payload);
 }
 
 function resolveGameERound() {
@@ -313,8 +337,10 @@ function resolveGameERound() {
   Object.entries(gains).forEach(([pid, pts]) => {
     const p = SESSION.players.get(pid); if (!p) return; ensurePlayerScore(p); p.score += pts;
   });
+  const payload = { game: 'E', round: SESSION.gameState.round, gains, choices };
+  SESSION.gameState.results = payload;
   SESSION.history.push({ at: nowIso(), game: 'E', round: SESSION.gameState.round, gains });
-  publishResults({ game: 'E', round: SESSION.gameState.round, gains, choices });
+  publishResults(payload);
 }
 
 function resolveCouncil() {
@@ -331,8 +357,10 @@ function resolveCouncil() {
       else p.score -= SESSION.councilPenalty;
     }
   }
-  SESSION.history.push({ at: nowIso(), council: { tally, loser, mode: SESSION.councilMode, immunity: SESSION.immunityPlayerId } });
-  publishResults({ game: 'COUNCIL', tally, loser, mode: SESSION.councilMode, immunity: SESSION.immunityPlayerId });
+  const payload = { game: 'COUNCIL', tally, loser, mode: SESSION.councilMode, immunity: SESSION.immunityPlayerId };
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), council: payload });
+  publishResults(payload);
 }
 
 function resolveFinal() {
@@ -347,8 +375,10 @@ function resolveFinal() {
     else p.score -= bet;
   });
   const podium = rankPlayers().slice(0, 3).map((p) => p.playerId);
+  const payload = { game: 'FINAL', winners, podium };
+  SESSION.gameState.results = payload;
   SESSION.history.push({ at: nowIso(), game: 'FINAL', winners, podium });
-  publishResults({ game: 'FINAL', winners, podium });
+  publishResults(payload);
 }
 
 function sendJson(res, status, payload) {
