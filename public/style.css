@@ -42,7 +42,7 @@ button.secondary { background: linear-gradient(180deg, #6c7c66, #42503f); color:
 .tv-stage {
   background:
     linear-gradient(rgba(0,0,0,.42), rgba(0,0,0,.56)),
-    url('/Visuels/1920x1080.png') center / cover no-repeat fixed;
+    url('/Visuels/tv_background_main_1920x1080.png') center / cover no-repeat fixed;
 }
 .tv-layout {
   min-height: 100vh;
