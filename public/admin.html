@@ -1,0 +1,44 @@
+<!doctype html><html lang="fr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Admin</title><link rel="stylesheet" href="/style.css"/></head><body>
+<div class="container"><h1 class="title">🛡️ Admin</h1>
+<section id="auth" class="panel"><input id="pwd" type="password" placeholder="Mot de passe Admin"/><button id="login" class="mt">Connexion</button></section>
+<section id="dash" class="panel mt" style="display:none">
+  <div class="phase-banner">ÉTAPE ACTUELLE : <span id="phase">LOBBY</span></div>
+
+  <div class="panel mt">
+    <h3>Choisir le jeu</h3>
+    <select id="gamePicker"><option value="GAME_A">Jeu A — Susceptible de...</option></select>
+    <button id="launchGame" class="mt">Lancer le jeu sélectionné</button>
+  </div>
+
+  <div class="panel mt">
+    <h3>Scores joueurs</h3>
+    <ul id="roster" class="roster"></ul>
+  </div>
+</section></div>
+<script src="/socket.io/socket.io.js"></script><script>
+const socket=io({transports:['websocket','polling']});let state=null;const byId=id=>document.getElementById(id);
+function cmd(command,payload,cb){socket.emit('admin:command',{command,payload},cb);}
+function scoreControls(p){
+  return `<div class='score-ctl'><button data-score='-1' data-p='${p.playerId}' class='secondary'>-1</button><strong>${p.score}</strong><button data-score='1' data-p='${p.playerId}'>+1</button><input data-set='${p.playerId}' type='number' value='${p.score}'/><button data-apply='${p.playerId}' class='secondary'>Set</button></div>`;
+}
+function render(s){
+  state=s;
+  byId('phase').textContent=s.phase;
+  const roster=byId('roster'); roster.innerHTML='';
+  s.rankings.forEach((p)=>{
+    const li=document.createElement('li');
+    li.innerHTML=`<div>#${p.rank} <strong>${p.name}</strong> <span class='small'>(${p.animal})</span> ${p.eliminated?'🪦':''}</div>${scoreControls(p)}`;
+    roster.appendChild(li);
+  });
+
+  roster.querySelectorAll('[data-score]').forEach((b)=>b.onclick=()=>cmd('UPDATE_SCORE',{playerId:b.dataset.p,delta:Number(b.dataset.score)}));
+  roster.querySelectorAll('[data-apply]').forEach((b)=>b.onclick=()=>{
+    const pid=b.dataset.apply; const val=roster.querySelector(`input[data-set='${pid}']`)?.value;
+    cmd('UPDATE_SCORE',{playerId:pid,score:Number(val)});
+  });
+}
+
+byId('login').onclick=()=>socket.emit('admin:auth',{password:byId('pwd').value},(r)=>{if(!r?.ok)return alert('Mot de passe incorrect');byId('auth').style.display='none';byId('dash').style.display='';render(r.state);});
+byId('launchGame').onclick=()=>cmd('LAUNCH_GAME',{game:byId('gamePicker').value},(r)=>{if(!r?.ok) alert(r.error||'Launch impossible');});
+socket.on('game:state',render); socket.on('admin:revoked',()=>alert('Session admin reprise ailleurs'));
+</script></body></html>
