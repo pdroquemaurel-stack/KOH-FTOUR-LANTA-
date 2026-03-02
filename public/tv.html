@@ -35,21 +35,31 @@ function phaseText(phase){
   return map[phase]||phase;
 }
 function rulesFor(s){
-  if(s.phase==='GAME_A') return s.resultsShown?'Résultats affichés. Votes fermés.':'Vote pour un joueur. 1 vote unique.';
-  return 'POC centré sur le Jeu A';
+  const map={GAME_A:'Vote pour un joueur. 1 vote unique.',GAME_B:'Trouve la bonne réponse le plus vite possible.',GAME_C:'Devine le juste prix le plus proche.',GAME_D:'Donne tes 3 meilleures réponses.',GAME_E:'Choisis PARTAGER ou TRAHIR.',COUNCIL:'Vote contre un joueur.',FINAL:'Parie puis réponds à la question finale.'};
+  if(map[s.phase]) return s.resultsShown?'Résultats affichés. Réponses fermées.':map[s.phase];
+  return 'Le Ftour des Aventuriers';
 }
 function questionFor(s){
   const g=s.gameState||{};
   if(s.phase==='GAME_A') return g.question||'Question en cours...';
+  if(s.phase==='GAME_B') return g.prompt||'Question en cours...';
+  if(s.phase==='GAME_C') return g.item?`Prix à estimer : ${g.item}`:'Question en cours...';
+  if(s.phase==='GAME_D') return g.theme?`Thème : ${g.theme}`:'Question en cours...';
+  if(s.phase==='FINAL') return g.question||'Question finale';
   return 'Le Ftour des Aventuriers';
 }
 function renderResults(s){
   const r=s.gameState?.results;
-  if(!s.resultsShown||!r||r.game!=='A'){resultsBlock.style.display='none'; return;}
+  if(!s.resultsShown||!r){resultsBlock.style.display='none'; return;}
   const nameById = Object.fromEntries((s.rankings||[]).map((p)=>[p.playerId,p.name]));
-  const top3=(r.top3||[]).map((x,idx)=>`<li>#${idx+1} ${nameById[x.playerId]||x.playerId} (${x.votesCount})</li>`).join('');
-  const impacts=(s.rankings||[]).map((p)=>{const d=(r.impacts||{})[p.playerId]||0; const cls=d>0?'plus':(d<0?'minus':''); const text=d>0?`+${d}`:`${d}`; return `<li>${p.name} <span class='${cls}'>${text}</span></li>`}).join('');
-  resultsBlock.innerHTML=`<h3>Top 3 des plus cités</h3><ol>${top3||'<li>Aucun</li>'}</ol><h3>Impact points</h3><ul>${impacts}</ul>`;
+  if(r.game==='A'){
+    const top3=(r.top3||[]).map((x,idx)=>`<li>#${idx+1} ${nameById[x.playerId]||x.playerId} (${x.votesCount})</li>`).join('');
+    const impacts=(s.rankings||[]).map((p)=>{const d=(r.impacts||{})[p.playerId]||0; const cls=d>0?'plus':(d<0?'minus':''); const text=d>0?`+${d}`:`${d}`; return `<li>${p.name} <span class='${cls}'>${text}</span></li>`}).join('');
+    resultsBlock.innerHTML=`<h3>Top 3 des plus cités</h3><ol>${top3||'<li>Aucun</li>'}</ol><h3>Impact points</h3><ul>${impacts}</ul>`;
+  } else {
+    const pretty=JSON.stringify(r,(k,v)=>nameById[v]||v,2);
+    resultsBlock.innerHTML=`<h3>Résultats ${r.game||''}</h3><pre>${pretty}</pre>`;
+  }
   resultsBlock.style.display='block';
 }
 
@@ -61,8 +71,8 @@ socket.on('game:state',(s)=>{
   if(!bgMusic.muted){ bgMusic.play().catch(()=>{}); }
   renderResults(s);
   const nameById = Object.fromEntries((s.rankings||[]).map((p)=>[p.playerId,p.name]));
-  const answeredIds=(s.gameAProgress?.answeredPlayerIds||[]);
-  const pendingIds=(s.gameAProgress?.pendingPlayerIds||[]);
+  const answeredIds=(s.gameProgress?.answeredPlayerIds||s.gameAProgress?.answeredPlayerIds||[]);
+  const pendingIds=(s.gameProgress?.pendingPlayerIds||s.gameAProgress?.pendingPlayerIds||[]);
   const answered=answeredIds.map((id)=>nameById[id]||id);
   const pending=pendingIds.map((id)=>nameById[id]||id);
   answeredList.textContent = answered.length ? answered.join(', ') : '-';
