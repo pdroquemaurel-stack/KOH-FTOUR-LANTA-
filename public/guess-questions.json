@@ -1,0 +1,7 @@
+[
+  { "q": "Combien font 7 × 8 ?", "min": 0, "max": 100, "c": 56, "s": 8 },
+  { "q": "Population mondiale (en milliards, arrondir) ?", "min": 1, "max": 10, "c": 8, "s": 10 },
+  { "q": "Nombre de continents ?", "min": 1, "max": 10, "c": 7, "s": 6 },
+  { "q": "Température d'ébullition de l'eau (°C) ?", "min": 50, "max": 120, "c": 100, "s": 8 },
+  { "q": "Année du premier pas sur la Lune ?", "min": 1900, "max": 2025, "c": 1969, "s": 10 }
+]
