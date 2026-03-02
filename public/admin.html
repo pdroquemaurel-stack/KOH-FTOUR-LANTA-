@@ -2,24 +2,12 @@
 <div class="container"><h1 class="title">🛡️ Admin</h1>
 <section id="auth" class="panel"><input id="pwd" type="password" placeholder="Mot de passe Admin"/><button id="login" class="mt">Connexion</button></section>
 <section id="dash" class="panel mt" style="display:none">
-  <div class="phase-banner">ÉTAPE ACTUELLE : <span id="phase">LOBBY</span> <span id="timer" class="small"></span></div>
-  <div class="grid grid-2 mt">
-    <div class="panel">
-      <h3>POC — Lancer un jeu</h3>
-      <select id="gamePicker"><option value="GAME_A">Jeu A — Susceptible de...</option></select>
-      <button id="launchGame" class="mt">Lancer le jeu sélectionné</button>
-      <div class="grid mt">
-        <button data-c="START">Start session</button>
-        <button data-c="NEXT" class="secondary">Next</button>
-        <button id="pauseResume" class="secondary">Pause</button>
-      </div>
-    </div>
-    <div class="panel">
-      <h3>Conseil</h3>
-      <select id="mode"><option value="ELIMINATION">Élimination</option><option value="PENALTY">Pénalité</option></select>
-      <select id="immunity" class="mt"></select>
-      <button id="setImmunity" class="mt">Appliquer immunité</button>
-    </div>
+  <div class="phase-banner">ÉTAPE ACTUELLE : <span id="phase">LOBBY</span></div>
+
+  <div class="panel mt">
+    <h3>Choisir le jeu</h3>
+    <select id="gamePicker"><option value="GAME_A">Jeu A — Susceptible de...</option></select>
+    <button id="launchGame" class="mt">Lancer le jeu sélectionné</button>
   </div>
 
   <div class="panel mt">
@@ -36,13 +24,6 @@ function scoreControls(p){
 function render(s){
   state=s;
   byId('phase').textContent=s.phase;
-  byId('timer').textContent=s.phaseTimer?.remainingMs?`• ${Math.ceil(s.phaseTimer.remainingMs/1000)}s`:'';
-  byId('pauseResume').textContent=s.paused?'Resume':'Pause';
-  byId('mode').value=s.councilMode;
-
-  const imm=byId('immunity');
-  imm.innerHTML='<option value="">Aucune immunité</option>'+s.rankings.filter(p=>!p.eliminated).map(p=>`<option value='${p.playerId}' ${s.immunityPlayerId===p.playerId?'selected':''}>${p.name}</option>`).join('');
-
   const roster=byId('roster'); roster.innerHTML='';
   s.rankings.forEach((p)=>{
     const li=document.createElement('li');
@@ -58,10 +39,6 @@ function render(s){
 }
 
 byId('login').onclick=()=>socket.emit('admin:auth',{password:byId('pwd').value},(r)=>{if(!r?.ok)return alert('Mot de passe incorrect');byId('auth').style.display='none';byId('dash').style.display='';render(r.state);});
-document.querySelectorAll('[data-c]').forEach((b)=>b.onclick=()=>cmd(b.dataset.c));
-byId('pauseResume').onclick=()=>cmd(state?.paused?'RESUME':'PAUSE');
-byId('setImmunity').onclick=()=>cmd('SET_IMMUNITY',{playerId:byId('immunity').value||null});
-byId('mode').onchange=()=>cmd('SET_COUNCIL_MODE',{mode:byId('mode').value});
 byId('launchGame').onclick=()=>cmd('LAUNCH_GAME',{game:byId('gamePicker').value},(r)=>{if(!r?.ok) alert(r.error||'Launch impossible');});
 socket.on('game:state',render); socket.on('admin:revoked',()=>alert('Session admin reprise ailleurs'));
 </script></body></html>

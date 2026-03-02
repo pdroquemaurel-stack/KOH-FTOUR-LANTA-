@@ -84,11 +84,13 @@ Server -> clients
 6. Vérifier Finale (seuls finalistes peuvent répondre).
 
 ## Ajustements UI
-- Admin simplifié: phase actuelle visible en grand + commandes essentielles (Start/Next/Pause-Resume).
+- Admin simplifié: choisir un jeu, lancer le jeu sélectionné, puis gérer les scores joueurs.
 - Admin peut modifier les scores en direct (+1/-1 ou valeur directe).
-- TV immersive: fond `/public/Visuels/tv_background_main_1920x1080.png`, question et règles affichées en très grand, noms joueurs en bas.
+- TV immersive: fond `/public/Visuels/tv_background_main_1920x1080.png`, question/règle en grand, scoreboard à droite, pseudos en vert quand le joueur a répondu.
 
 ## POC Jeu A
 - Admin peut sélectionner et lancer `GAME_A` via `LAUNCH_GAME`.
 - TV affiche en live qui a répondu et qui est en attente (`gameAProgress`).
 - Fond TV: `Visuels/tv_background_main_1920x1080.png`.
+
+- Un joueur peut rejoindre en cours de partie et répondre immédiatement (POC GAME_A).

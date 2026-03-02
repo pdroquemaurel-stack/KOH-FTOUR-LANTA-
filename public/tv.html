@@ -1,13 +1,19 @@
 <!doctype html><html lang="fr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>TV</title><link rel="stylesheet" href="/style.css"/></head><body class="tv-stage">
-<main class="tv-main">
-  <div id="bigPhase" class="tv-phase"></div>
-  <div id="bigQuestion" class="tv-question"></div>
-  <div id="bigRule" class="tv-rule"></div>
-  <div class="tv-progress">
-    <div><strong>✅ Ont répondu :</strong> <span id="answeredList">-</span></div>
-    <div><strong>⏳ En attente :</strong> <span id="pendingList">-</span></div>
-  </div>
-  <div id="playersBar" class="tv-players-bar"></div>
+<main class="tv-layout">
+  <section class="tv-main">
+    <div id="bigPhase" class="tv-phase"></div>
+    <div id="bigQuestion" class="tv-question"></div>
+    <div id="bigRule" class="tv-rule"></div>
+    <div class="tv-progress">
+      <div><strong>✅ Ont répondu :</strong> <span id="answeredList">-</span></div>
+      <div><strong>⏳ En attente :</strong> <span id="pendingList">-</span></div>
+    </div>
+    <div id="playersBar" class="tv-players-bar"></div>
+  </section>
+  <aside class="tv-scoreboard">
+    <h3>Classement</h3>
+    <ol id="scoreList"></ol>
+  </aside>
 </main>
 <script src="/socket.io/socket.io.js"></script><script>
 const socket=io({transports:['websocket','polling']});
@@ -17,6 +23,7 @@ const bigRule=document.getElementById('bigRule');
 const playersBar=document.getElementById('playersBar');
 const answeredList=document.getElementById('answeredList');
 const pendingList=document.getElementById('pendingList');
+const scoreList=document.getElementById('scoreList');
 
 function phaseText(phase){
   const map={LOBBY:'Lobby',INTRO:'Introduction',GAME_A:'Jeu A',RESULTS_A:'Résultats A',GAME_B:'Jeu B',RESULTS_B:'Résultats B',GAME_C:'Jeu C',RESULTS_C:'Résultats C',GAME_D:'Jeu D',RESULTS_D:'Résultats D',GAME_E:'Jeu E',RESULTS_E:'Résultats E',COUNCIL:'Conseil',COUNCIL_RESULT:'Résultat Conseil',FINAL:'Finale',FINAL_RESULT:'Résultat Finale',END:'Fin'};
@@ -37,10 +44,14 @@ socket.on('game:state',(s)=>{
   bigQuestion.textContent=questionFor(s);
   bigRule.textContent=rulesFor(s);
   const nameById = Object.fromEntries((s.rankings||[]).map((p)=>[p.playerId,p.name]));
-  const answered=(s.gameAProgress?.answeredPlayerIds||[]).map((id)=>nameById[id]||id);
-  const pending=(s.gameAProgress?.pendingPlayerIds||[]).map((id)=>nameById[id]||id);
+  const answeredIds=(s.gameAProgress?.answeredPlayerIds||[]);
+  const pendingIds=(s.gameAProgress?.pendingPlayerIds||[]);
+  const answered=answeredIds.map((id)=>nameById[id]||id);
+  const pending=pendingIds.map((id)=>nameById[id]||id);
   answeredList.textContent = answered.length ? answered.join(', ') : '-';
   pendingList.textContent = pending.length ? pending.join(', ') : '-';
-  playersBar.innerHTML=(s.rankings||[]).map(p=>`<span>${p.name}</span>`).join('');
+
+  playersBar.innerHTML=(s.rankings||[]).map(p=>`<span class='${answeredIds.includes(p.playerId)?'answered':''}'>${p.name}</span>`).join('');
+  scoreList.innerHTML=(s.rankings||[]).map(p=>`<li><span class='${answeredIds.includes(p.playerId)?'answered':''}'>${p.name}</span><strong>${p.score}</strong></li>`).join('');
 });
 </script></body></html>
