@@ -2,21 +2,21 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <title>Party Buzzer 3.0 - Rejoindre</title>
+  <title>Koh Lanta – Le Ftour des Aventuriers - Rejoindre</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <main class="container">
-    <h1 id="joinTitle">Rejoindre la partie</h1>
+    <h1 id="joinTitle">Rejoindre l'aventure</h1>
 
     <form id="joinForm" class="card" onsubmit="return false;">
       <div class="field">
-        <label>Code de salle</label>
+        <label>Code du camp</label>
         <input id="room" type="text" inputmode="text" maxlength="8" required />
       </div>
       <div class="field">
-        <label>Pseudo</label>
+        <label>Nom d'aventurier</label>
         <input id="pseudo" type="text" maxlength="16" required />
       </div>
       <div class="field">
@@ -44,7 +44,7 @@
         <div class="player-header-identity">
           <div id="joinedAvatar" class="player-identity-avatar">🙂</div>
           <div>
-            <div class="player-header-label">Pseudo</div>
+            <div class="player-header-label">Nom d'aventurier</div>
             <div id="joinedNameTop" class="player-header-name">Joueur</div>
           </div>
         </div>
@@ -121,7 +121,7 @@
     const roomParam = (qs.get('room') || '').toUpperCase();
 
     const elRoom = document.getElementById('room');
-    const elPseudo = document.getElementById('pseudo');
+    const elNom d'aventurier = document.getElementById('pseudo');
     const elJoinBtn = document.getElementById('joinBtn');
     const elJoinTitle = document.getElementById('joinTitle');
     const elTeamPicker = document.getElementById('teamPicker');
@@ -167,6 +167,9 @@
 
     // Most
     const elMostPanel = document.getElementById('mostPanel');
+    const elTop3Panel = document.getElementById('top3Panel');
+    const elDuelPanel = document.getElementById('duelPanel');
+    const elConseilPanel = document.getElementById('conseilPanel');
     const elMostQ = document.getElementById('mostQ');
     const elMostChoices = document.getElementById('mostChoices');
     const elMostInfo = document.getElementById('mostInfo');
@@ -177,7 +180,7 @@
     let currentMode = 'buzzer';
     let cdInt = null;
     let quizAnswered = null;
-    let questionActive = { quiz: false, guess: false, free: false, most: false, buzzer: false };
+    let questionActive = { quiz: false, guess: false, free: false, most: false, buzzer: false, top3: false, duel: false, conseil: false };
     let myPlayerName = '';
 
     // Guess auto-send
@@ -268,7 +271,7 @@
 
     elJoinBtn.addEventListener('click', () => {
       const room = elRoom.value.trim().toUpperCase();
-      const pseudo = elPseudo.value.trim();
+      const pseudo = elNom d'aventurier.value.trim();
       const teamColor = (elTeamPicker.querySelector('input[name="teamColor"]:checked') || {}).value || '#ff5f7e';
       if (!room || !pseudo) { alert('Merci de remplir la salle et le pseudo'); return; }
 
@@ -301,7 +304,7 @@
 
       socket.on('room:state', ({ locked }) => {
         if (locked) {
-          questionActive = { quiz: false, guess: false, free: false, most: false, buzzer: false };
+          questionActive = { quiz: false, guess: false, free: false, most: false, buzzer: false, top3:false, duel:false, conseil:false };
           setModeUI(currentMode);
           elWaitingPanel.style.display = '';
           elWaitingText.textContent = "La salle est fermée par l'admin.";
@@ -310,7 +313,7 @@
 
       // Mode
       socket.on('mode:changed', ({ mode }) => {
-        questionActive = { quiz: false, guess: false, free: false, most: false, buzzer: false };
+        questionActive = { quiz: false, guess: false, free: false, most: false, buzzer: false, top3:false, duel:false, conseil:false };
         setModeUI(mode);
         clearSubmitted();
         if (mode === 'buzzer') {
@@ -376,7 +379,7 @@
       socket.on('round:winner', (data) => { questionActive.buzzer = false; setBuzzEnabled(false); elRoundState.textContent = `Gagnant: ${data.name}`; setModeUI('buzzer'); });
       socket.on('round:reset', () => {
         stopCountdown();
-        questionActive = { quiz: false, guess: false, free: false, most: false, buzzer: false };
+        questionActive = { quiz: false, guess: false, free: false, most: false, buzzer: false, top3:false, duel:false, conseil:false };
         setModeUI(currentMode);
         if (currentMode === 'buzzer') { setBuzzEnabled(false); elRoundState.textContent = 'Tour réinitialisé. En attente...'; }
         if (currentMode === 'quiz') { setQuizEnabled(false); elQuizInfo.textContent = 'Question réinitialisée. En attente...'; }
@@ -465,6 +468,60 @@
         elMostInfo.textContent = 'Vote terminé.';
       });
 
+
+      socket.on('top3:question', ({ question, seconds }) => {
+        questionActive.top3 = true;
+        setModeUI('top3');
+        document.getElementById('top3Q').textContent = question;
+        document.getElementById('top3Info').textContent = `Donne 3 réponses (${seconds}s)`;
+      });
+
+      socket.on('top3:result', () => {
+        questionActive.top3 = false;
+        document.getElementById('top3Info').textContent = 'Résultats affichés sur la TV';
+      });
+
+      socket.on('duel:round', ({ round, maxRounds, pairs, bye }) => {
+        questionActive.duel = true;
+        setModeUI('duel');
+        const me = (elJoinedNameTop.textContent || '').trim();
+        const inPair = (pairs || []).find((p) => p[0] === me || p[1] === me);
+        if (inPair) {
+          const other = inPair[0] === me ? inPair[1] : inPair[0];
+          document.getElementById('duelRoundInfo').textContent = `Round ${round}/${maxRounds} contre ${other}`;
+          document.getElementById('duelInfo').textContent = 'Choisis en secret';
+        } else if (bye === me) {
+          document.getElementById('duelRoundInfo').textContent = `Round ${round}/${maxRounds}: Bye contre le Djinn`;
+          document.getElementById('duelInfo').textContent = 'Pas d'action nécessaire';
+        } else {
+          document.getElementById('duelRoundInfo').textContent = `Round ${round}/${maxRounds}`;
+        }
+      });
+
+      socket.on('duel:result', () => {
+        questionActive.duel = false;
+        document.getElementById('duelInfo').textContent = 'Résultats révélés sur TV';
+      });
+
+      socket.on('conseil:start', ({ choices }) => {
+        questionActive.conseil = true;
+        setModeUI('conseil');
+        const root = document.getElementById('conseilChoices');
+        root.innerHTML = '';
+        (choices || []).forEach((name) => {
+          const b = document.createElement('button');
+          b.textContent = name;
+          b.type = 'button';
+          b.addEventListener('click', () => socket.emit('conseil:vote', { target: name }, () => { document.getElementById('conseilInfo').textContent = 'Vote enregistré'; }));
+          root.appendChild(b);
+        });
+      });
+
+      socket.on('conseil:result', () => {
+        questionActive.conseil = false;
+        document.getElementById('conseilInfo').textContent = 'Dépouillement terminé';
+      });
+
       socket.on('player:kicked', () => {
         alert("Vous avez été retiré de la salle par l'admin.");
         window.location.href = '/join';
@@ -476,6 +533,13 @@
     elBuzz.addEventListener('click', () => { if (!socket) return; setBuzzEnabled(false); socket.emit('buzz:press', () => { markSubmitted('✅ Buzz pris en compte'); }); });
     elBtnTrue.addEventListener('click', () => { if (!socket) return; setQuizEnabled(false); quizAnswered = true; elBtnTrue.classList.add('selected'); elQuizInfo.textContent = 'Réponse envoyée: Vrai'; socket.emit('quiz:answer', { answer: true }, () => { markSubmitted('✅ Réponse Vrai prise en compte'); }); });
     elBtnFalse.addEventListener('click', () => { if (!socket) return; setQuizEnabled(false); quizAnswered = false; elBtnFalse.classList.add('selected'); elQuizInfo.textContent = 'Réponse envoyée: Faux'; socket.emit('quiz:answer', { answer: false }, () => { markSubmitted('✅ Réponse Faux prise en compte'); }); });
+    document.getElementById('top3SendBtn').addEventListener('click', () => {
+      if (!socket) return;
+      const picks = [document.getElementById('top3A1').value, document.getElementById('top3A2').value, document.getElementById('top3A3').value];
+      socket.emit('top3:answer', { picks }, () => markSubmitted('✅ Top 3 envoyé'));
+    });
+    document.getElementById('duelShareBtn').addEventListener('click', () => socket && socket.emit('duel:choice', { choice: 'share' }, () => markSubmitted('✅ Choix Partager envoyé')));
+    document.getElementById('duelBetrayBtn').addEventListener('click', () => socket && socket.emit('duel:choice', { choice: 'betray' }, () => markSubmitted('✅ Choix Trahir envoyé')));
   </script>
 </body>
 </html>
