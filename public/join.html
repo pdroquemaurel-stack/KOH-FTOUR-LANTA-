@@ -1,14 +1,20 @@
 <!doctype html><html lang="fr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Aventurier</title><link rel="stylesheet" href="/style.css"/></head><body>
 <div class="container"><h1 class="title">🌴 Aventurier</h1>
 <section id="form" class="panel"><div class="grid"><input id="name" placeholder="Nom" maxlength="24"/><input id="animal" placeholder="Animal fétiche" maxlength="24"/><button id="join">Rejoindre</button></div></section>
-<section id="play" class="panel mt" style="display:none"><h2 id="me"></h2><p id="phase"></p><div id="action"></div><p id="ack" class="small"></p></section></div>
+<section id="play" class="panel mt" style="display:none"><div id="scoreBadge" class="score-badge">0 pt</div><h2 id="me"></h2><p id="phase"></p><div id="action"></div><p id="ack" class="small"></p></section></div>
 <script src="/socket.io/socket.io.js"></script><script>
 const socket=io({transports:['websocket','polling']}); const KEY='kla_singleton_player_v2'; let me=null,st=null;
 const byId=id=>document.getElementById(id); const save=v=>localStorage.setItem(KEY,JSON.stringify(v)); const load=()=>{try{return JSON.parse(localStorage.getItem(KEY)||'null')}catch{return null}};
 function joined(p){me=p;byId('form').style.display='none';byId('play').style.display='';byId('me').textContent=`${p.name} (${p.animal})`}
 function send(type,payload){socket.emit('game:action',{type,payload},(r)=>byId('ack').textContent=r?.ok?'✅ Réponse envoyée':`❌ ${r?.error||'Erreur'}`)}
 function playerList(){return (st?.rankings||[]).filter(p=>!p.eliminated).map(p=>`<option value='${p.playerId}'>${p.name}</option>`).join('')}
+function updateScore(){
+  if(!st||!me) return;
+  const meState=(st.rankings||[]).find((p)=>p.playerId===me.playerId);
+  byId('scoreBadge').textContent=`${meState?.score||0} pt`;
+}
 function renderAction(){ if(!st||!me)return; const phase=st.phase; byId('phase').textContent=`Phase: ${phase}`; const a=byId('action'); const gs=st.gameState||{};
+if(st.resultsShown){a.innerHTML='<p>Résultats affichés: réponses fermées.</p>';return;}
 if(phase==='GAME_A'){a.innerHTML=`<select id='t'>${playerList()}</select><button id='s'>Voter</button>`;byId('s').onclick=()=>send('A_VOTE',{targetPlayerId:byId('t').value});}
 else if(phase==='GAME_B'){a.innerHTML=`<input id='ans' placeholder='Ta réponse'/><button id='s'>Envoyer</button>`;byId('s').onclick=()=>send('B_ANSWER',{answer:byId('ans').value});}
 else if(phase==='GAME_C'){a.innerHTML=`<input id='g' type='number' placeholder='Ton prix'/><button id='s'>Valider</button>`;byId('s').onclick=()=>send('C_GUESS',{value:Number(byId('g').value)});}
@@ -19,5 +25,6 @@ else if(phase==='FINAL'){const finalist=(gs.finalists||[]).includes(me.playerId)
 else a.innerHTML='<p>En attente de la prochaine épreuve...</p>';}
 byId('join').onclick=()=>{const s=load();socket.emit('room:join',{playerId:s?.playerId,reconnectToken:s?.reconnectToken,name:byId('name').value||s?.name,animal:byId('animal').value||s?.animal},(r)=>{if(!r?.ok)return alert(r?.error||'Impossible');save({playerId:r.player.playerId,reconnectToken:r.player.reconnectToken,name:r.player.name,animal:r.player.animal});joined(r.player);renderAction();});};
 const s=load();if(s?.playerId&&s?.reconnectToken){socket.emit('room:join',s,(r)=>{if(r?.ok){joined(r.player);}})}
-socket.on('game:state',(s0)=>{st=s0;renderAction();});
+socket.on('game:state',(s0)=>{st=s0;updateScore();renderAction();});
+socket.on('game:reset',()=>{localStorage.removeItem(KEY);location.reload();});
 </script></body></html>
