@@ -3,90 +3,45 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { Server } = require('socket.io');
-const QRCode = require('qrcode');
 
 const PORT = Number(process.env.PORT || 3000);
-const ADMIN_KEY = process.env.ADMIN_KEY || 'change-me-admin-key';
-const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
-const ROOM_RE = /^[A-Z0-9]{6}$/;
-const MAX_PLAYERS = 24;
+const ADMIN_PASSWORD = 'Admin';
+const MAX_PLAYERS = 40;
 
-const ROOM_STATES = {
-  LOBBY: 'LOBBY',
-  WAITING: 'WAITING',
-  PLACEHOLDER: 'PLACEHOLDER'
+const SESSION = {
+  id: 'GLOBAL',
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+  locked: false,
+  screen: 'LOBBY',
+  players: new Map(),
+  socketsByPlayerId: new Map(),
+  adminSocketId: null
 };
 
-const rooms = new Map();
+function nowIso() { return new Date().toISOString(); }
+function touch() { SESSION.updatedAt = nowIso(); }
+function safeName(v) { return String(v || '').trim().slice(0, 24) || 'Aventurier'; }
+function safeAnimal(v) { return String(v || '').trim().slice(0, 24) || 'Tigre'; }
 
-function makeCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let out = '';
-  for (let i = 0; i < 6; i += 1) out += chars[Math.floor(Math.random() * chars.length)];
-  return out;
-}
-
-function uniqueRoomCode() {
-  let tries = 0;
-  while (tries < 50) {
-    const code = makeCode();
-    if (!rooms.has(code)) return code;
-    tries += 1;
-  }
-  throw new Error('Unable to generate room code');
-}
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function buildTvState(room) {
+function buildState() {
   return {
-    roomCode: room.roomCode,
-    locked: room.locked,
-    screen: room.screen,
-    createdAt: room.createdAt,
-    updatedAt: room.updatedAt,
-    playerCount: room.players.size,
-    players: [...room.players.values()].map((p) => ({
+    sessionId: SESSION.id,
+    createdAt: SESSION.createdAt,
+    updatedAt: SESSION.updatedAt,
+    locked: SESSION.locked,
+    screen: SESSION.screen,
+    playerCount: SESSION.players.size,
+    players: [...SESSION.players.values()].map((p) => ({
       playerId: p.playerId,
       name: p.name,
-      avatar: p.avatar,
+      animal: p.animal,
       status: p.status,
       ready: p.ready,
       lastSeenAt: p.lastSeenAt
     }))
   };
-}
-
-function touch(room) {
-  room.updatedAt = nowIso();
-}
-
-function createRoom() {
-  const roomCode = uniqueRoomCode();
-  const room = {
-    roomCode,
-    createdAt: nowIso(),
-    updatedAt: nowIso(),
-    locked: false,
-    screen: ROOM_STATES.LOBBY,
-    players: new Map(),
-    socketsByPlayerId: new Map(),
-    adminSocketId: null,
-    tvSockets: new Set()
-  };
-  rooms.set(roomCode, room);
-  return room;
-}
-
-function readBody(req) {
-  return new Promise((resolve) => {
-    let body = '';
-    req.on('data', (chunk) => { body += chunk; });
-    req.on('end', () => resolve(body));
-  });
 }
 
 function sendJson(res, status, payload) {
@@ -95,53 +50,37 @@ function sendJson(res, status, payload) {
 }
 
 const publicDir = path.join(__dirname, 'public');
-
 function serveFile(res, filePath) {
   fs.readFile(filePath, (err, data) => {
-    if (err) {
-      sendJson(res, 404, { error: 'Not found' });
-      return;
-    }
+    if (err) return sendJson(res, 404, { error: 'Not found' });
     const ext = path.extname(filePath);
-    const map = {
+    const types = {
       '.html': 'text/html; charset=utf-8',
       '.css': 'text/css; charset=utf-8',
       '.js': 'text/javascript; charset=utf-8',
+      '.json': 'application/json; charset=utf-8',
       '.png': 'image/png',
       '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.svg': 'image/svg+xml',
-      '.json': 'application/json; charset=utf-8'
+      '.svg': 'image/svg+xml'
     };
-    res.writeHead(200, { 'Content-Type': map[ext] || 'application/octet-stream' });
+    res.writeHead(200, { 'Content-Type': types[ext] || 'application/octet-stream' });
     res.end(data);
   });
 }
 
-const server = http.createServer(async (req, res) => {
+const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname;
-
   if (pathname === '/healthz') return sendJson(res, 200, { ok: true });
 
-  if (pathname === '/api/qr') {
-    const data = String(url.searchParams.get('data') || '').slice(0, 512);
-    if (!data) return sendJson(res, 400, { error: 'Missing data' });
-    const png = await QRCode.toBuffer(data, { margin: 1, width: 512 });
-    res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' });
-    return res.end(png);
-  }
-
-  if (pathname.startsWith('/join/')) return serveFile(res, path.join(publicDir, 'join.html'));
-  if (pathname.startsWith('/tv/')) return serveFile(res, path.join(publicDir, 'tv.html'));
-  if (pathname.startsWith('/admin/')) return serveFile(res, path.join(publicDir, 'admin.html'));
-
   if (pathname === '/' || pathname === '/index.html') return serveFile(res, path.join(publicDir, 'index.html'));
+  if (pathname === '/admin') return serveFile(res, path.join(publicDir, 'admin.html'));
+  if (pathname === '/join') return serveFile(res, path.join(publicDir, 'join.html'));
+  if (pathname === '/tv') return serveFile(res, path.join(publicDir, 'tv.html'));
 
   const filePath = path.join(publicDir, pathname.replace(/^\/+/, ''));
   if (!filePath.startsWith(publicDir)) return sendJson(res, 403, { error: 'Forbidden' });
   if (fs.existsSync(filePath)) return serveFile(res, filePath);
-
   return sendJson(res, 404, { error: 'Not found' });
 });
 
@@ -150,217 +89,121 @@ const io = new Server(server, {
   transports: ['websocket', 'polling']
 });
 
-function emitTvState(room) {
-  const payload = buildTvState(room);
-  io.to(`room:${room.roomCode}`).emit('tv:state', payload);
-}
-
-function roomFromCode(rawCode) {
-  const code = String(rawCode || '').toUpperCase().trim();
-  if (!ROOM_RE.test(code)) return null;
-  return rooms.get(code) || null;
-}
-
-function isAdmin(socket, room) {
-  return room && room.adminSocketId === socket.id;
-}
-
-function safeName(name) {
-  return String(name || '').trim().slice(0, 24) || 'Aventurier';
-}
-
-function safeAvatar(avatar) {
-  return String(avatar || '🗿').slice(0, 4);
-}
+function emitState() { io.emit('tv:state', buildState()); }
+function isAdmin(socket) { return SESSION.adminSocketId === socket.id; }
 
 io.on('connection', (socket) => {
-  socket.on('room:create', ({ adminKey }, ack) => {
-    if (adminKey !== ADMIN_KEY) return ack?.({ ok: false, error: 'UNAUTHORIZED' });
-    const room = createRoom();
-    room.adminSocketId = socket.id;
-    socket.join(`room:${room.roomCode}`);
-    socket.join(`admin:${room.roomCode}`);
-    ack?.({
-      ok: true,
-      roomCode: room.roomCode,
-      joinUrl: `${PUBLIC_BASE_URL}/join/${room.roomCode}`,
-      tvUrl: `${PUBLIC_BASE_URL}/tv/${room.roomCode}`,
-      adminUrl: `${PUBLIC_BASE_URL}/admin/${room.roomCode}`
-    });
-    emitTvState(room);
-  });
+  socket.emit('tv:state', buildState());
 
-  socket.on('admin:auth', ({ adminKey, roomCode }, ack) => {
-    const room = roomFromCode(roomCode);
-    if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
-    if (adminKey !== ADMIN_KEY) return ack?.({ ok: false, error: 'UNAUTHORIZED' });
-    if (room.adminSocketId && room.adminSocketId !== socket.id) {
-      io.to(room.adminSocketId).emit('admin:revoked', { reason: 'NEW_ADMIN_CONNECTED' });
+  socket.on('admin:auth', ({ password }, ack) => {
+    if (password !== ADMIN_PASSWORD) return ack?.({ ok: false, error: 'UNAUTHORIZED' });
+    if (SESSION.adminSocketId && SESSION.adminSocketId !== socket.id) {
+      io.to(SESSION.adminSocketId).emit('admin:revoked', { reason: 'NEW_ADMIN_CONNECTED' });
     }
-    room.adminSocketId = socket.id;
-    socket.join(`room:${room.roomCode}`);
-    socket.join(`admin:${room.roomCode}`);
-    ack?.({ ok: true, room: buildTvState(room) });
-    emitTvState(room);
+    SESSION.adminSocketId = socket.id;
+    ack?.({ ok: true, state: buildState() });
+    emitState();
   });
 
-  socket.on('room:join', ({ roomCode, playerId, reconnectToken, name, avatar }, ack) => {
-    const room = roomFromCode(roomCode);
-    if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
-    if (room.locked) return ack?.({ ok: false, error: 'ROOM_LOCKED' });
-
+  socket.on('room:join', ({ playerId, reconnectToken, name, animal }, ack) => {
+    if (SESSION.locked) return ack?.({ ok: false, error: 'SESSION_LOCKED' });
     const pid = String(playerId || crypto.randomUUID());
     const token = String(reconnectToken || crypto.randomUUID());
-    const existing = room.players.get(pid);
+    const existing = SESSION.players.get(pid);
 
-    if (!existing && room.players.size >= MAX_PLAYERS) return ack?.({ ok: false, error: 'ROOM_FULL' });
-
-    if (existing && existing.reconnectToken !== token) {
-      return ack?.({ ok: false, error: 'INVALID_RECONNECT_TOKEN' });
-    }
+    if (!existing && SESSION.players.size >= MAX_PLAYERS) return ack?.({ ok: false, error: 'SESSION_FULL' });
+    if (existing && existing.reconnectToken !== token) return ack?.({ ok: false, error: 'INVALID_RECONNECT_TOKEN' });
 
     const player = existing || {
       playerId: pid,
       reconnectToken: token,
       name: safeName(name),
-      avatar: safeAvatar(avatar),
+      animal: safeAnimal(animal),
       ready: false,
       status: 'CONNECTED',
       lastSeenAt: nowIso()
     };
 
     player.name = safeName(name || player.name);
-    player.avatar = safeAvatar(avatar || player.avatar);
+    player.animal = safeAnimal(animal || player.animal);
     player.status = 'CONNECTED';
     player.lastSeenAt = nowIso();
-    room.players.set(pid, player);
-    room.socketsByPlayerId.set(socket.id, pid);
-    socket.join(`room:${room.roomCode}`);
-    socket.data.roomCode = room.roomCode;
+
+    SESSION.players.set(pid, player);
+    SESSION.socketsByPlayerId.set(socket.id, pid);
     socket.data.playerId = pid;
 
-    touch(room);
-    emitTvState(room);
-    io.to(`room:${room.roomCode}`).emit('presence:update', {
-      roomCode: room.roomCode,
-      playerId: pid,
-      status: 'CONNECTED',
-      lastSeenAt: player.lastSeenAt
-    });
-
-    ack?.({ ok: true, room: buildTvState(room), player: { ...player } });
+    touch();
+    emitState();
+    io.emit('presence:update', { playerId: pid, status: 'CONNECTED', lastSeenAt: player.lastSeenAt });
+    ack?.({ ok: true, player: { ...player }, state: buildState() });
   });
 
-  socket.on('room:leave', ({ roomCode, playerId }, ack) => {
-    const room = roomFromCode(roomCode);
-    if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
-    const pid = String(playerId || socket.data.playerId || '');
-    if (!room.players.has(pid)) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
-    room.players.delete(pid);
-    touch(room);
-    emitTvState(room);
-    io.to(`room:${room.roomCode}`).emit('presence:update', {
-      roomCode: room.roomCode,
-      playerId: pid,
-      status: 'DISCONNECTED',
-      lastSeenAt: nowIso()
-    });
+  socket.on('player:update', ({ playerId, name, animal, ready }, ack) => {
+    const p = SESSION.players.get(String(playerId || socket.data.playerId || ''));
+    if (!p) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
+    if (typeof name !== 'undefined') p.name = safeName(name);
+    if (typeof animal !== 'undefined') p.animal = safeAnimal(animal);
+    if (typeof ready !== 'undefined') p.ready = Boolean(ready);
+    p.lastSeenAt = nowIso();
+    touch();
+    emitState();
+    ack?.({ ok: true, player: { ...p } });
+  });
+
+  socket.on('admin:lock', ({ locked }, ack) => {
+    if (!isAdmin(socket)) return ack?.({ ok: false, error: 'UNAUTHORIZED' });
+    SESSION.locked = Boolean(locked);
+    touch();
+    emitState();
     ack?.({ ok: true });
   });
 
-  socket.on('player:update', ({ roomCode, playerId, name, avatar, ready }, ack) => {
-    const room = roomFromCode(roomCode);
-    if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
-    const player = room.players.get(String(playerId || ''));
-    if (!player) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
-    if (typeof name !== 'undefined') player.name = safeName(name);
-    if (typeof avatar !== 'undefined') player.avatar = safeAvatar(avatar);
-    if (typeof ready !== 'undefined') player.ready = Boolean(ready);
-    player.lastSeenAt = nowIso();
-    touch(room);
-    emitTvState(room);
-    ack?.({ ok: true, player });
-  });
-
-  socket.on('admin:lock', ({ roomCode, locked }, ack) => {
-    const room = roomFromCode(roomCode);
-    if (!isAdmin(socket, room)) return ack?.({ ok: false, error: 'UNAUTHORIZED' });
-    room.locked = Boolean(locked);
-    touch(room);
-    emitTvState(room);
-    ack?.({ ok: true });
-  });
-
-  socket.on('admin:kick', ({ roomCode, playerId }, ack) => {
-    const room = roomFromCode(roomCode);
-    if (!isAdmin(socket, room)) return ack?.({ ok: false, error: 'UNAUTHORIZED' });
+  socket.on('admin:kick', ({ playerId }, ack) => {
+    if (!isAdmin(socket)) return ack?.({ ok: false, error: 'UNAUTHORIZED' });
     const pid = String(playerId || '');
-    room.players.delete(pid);
-    touch(room);
-    emitTvState(room);
-    io.to(`room:${room.roomCode}`).emit('presence:update', {
-      roomCode: room.roomCode,
-      playerId: pid,
-      status: 'DISCONNECTED',
-      lastSeenAt: nowIso()
-    });
+    SESSION.players.delete(pid);
+    touch();
+    emitState();
+    io.emit('presence:update', { playerId: pid, status: 'DISCONNECTED', lastSeenAt: nowIso() });
     ack?.({ ok: true });
   });
 
-  socket.on('admin:reset', ({ roomCode }, ack) => {
-    const room = roomFromCode(roomCode);
-    if (!isAdmin(socket, room)) return ack?.({ ok: false, error: 'UNAUTHORIZED' });
-    room.players.clear();
-    room.locked = false;
-    room.screen = ROOM_STATES.LOBBY;
-    touch(room);
-    emitTvState(room);
+  socket.on('admin:reset', (_, ack) => {
+    if (!isAdmin(socket)) return ack?.({ ok: false, error: 'UNAUTHORIZED' });
+    SESSION.players.clear();
+    SESSION.locked = false;
+    SESSION.screen = 'LOBBY';
+    touch();
+    emitState();
     ack?.({ ok: true });
   });
 
-  socket.on('tv:screen', ({ roomCode, screen }, ack) => {
-    const room = roomFromCode(roomCode);
-    if (!isAdmin(socket, room)) return ack?.({ ok: false, error: 'UNAUTHORIZED' });
-    if (!Object.values(ROOM_STATES).includes(screen)) return ack?.({ ok: false, error: 'INVALID_SCREEN' });
-    room.screen = screen;
-    touch(room);
-    emitTvState(room);
+  socket.on('tv:screen', ({ screen }, ack) => {
+    if (!isAdmin(socket)) return ack?.({ ok: false, error: 'UNAUTHORIZED' });
+    if (!['LOBBY', 'WAITING', 'PLACEHOLDER'].includes(screen)) return ack?.({ ok: false, error: 'INVALID_SCREEN' });
+    SESSION.screen = screen;
+    touch();
+    emitState();
     ack?.({ ok: true });
-  });
-
-  socket.on('tv:subscribe', ({ roomCode }, ack) => {
-    const room = roomFromCode(roomCode);
-    if (!room) return ack?.({ ok: false, error: 'ROOM_NOT_FOUND' });
-    socket.join(`room:${room.roomCode}`);
-    room.tvSockets.add(socket.id);
-    ack?.({ ok: true, room: buildTvState(room) });
   });
 
   socket.on('disconnect', () => {
-    for (const room of rooms.values()) {
-      if (room.adminSocketId === socket.id) room.adminSocketId = null;
-      room.tvSockets.delete(socket.id);
-      const pid = room.socketsByPlayerId.get(socket.id);
-      if (pid) {
-        const p = room.players.get(pid);
-        if (p) {
-          p.status = 'DISCONNECTED';
-          p.lastSeenAt = nowIso();
-          io.to(`room:${room.roomCode}`).emit('presence:update', {
-            roomCode: room.roomCode,
-            playerId: pid,
-            status: 'DISCONNECTED',
-            lastSeenAt: p.lastSeenAt
-          });
-          touch(room);
-          emitTvState(room);
-        }
-        room.socketsByPlayerId.delete(socket.id);
-      }
+    if (SESSION.adminSocketId === socket.id) SESSION.adminSocketId = null;
+    const pid = SESSION.socketsByPlayerId.get(socket.id);
+    if (!pid) return;
+    const p = SESSION.players.get(pid);
+    if (p) {
+      p.status = 'DISCONNECTED';
+      p.lastSeenAt = nowIso();
+      touch();
+      emitState();
+      io.emit('presence:update', { playerId: pid, status: 'DISCONNECTED', lastSeenAt: p.lastSeenAt });
     }
+    SESSION.socketsByPlayerId.delete(socket.id);
   });
 });
 
 server.listen(PORT, () => {
-  console.log(`Koh Lanta backbone running on http://localhost:${PORT}`);
+  console.log(`Koh Lanta singleton running on http://localhost:${PORT}`);
 });

@@ -8,127 +8,64 @@
 </head>
 <body>
   <div class="container">
-    <h1 class="title">🎛️ Console Admin</h1>
-    <div class="panel" id="authPanel">
-      <div class="grid">
-        <input id="adminKey" placeholder="ADMIN_KEY" type="password" />
-        <button id="createBtn">Créer une room</button>
-        <input id="roomCodeInput" placeholder="Code room (ex: KLA7Q2)" />
-        <button id="connectBtn" class="secondary">Se connecter à une room existante</button>
-      </div>
-    </div>
+    <h1 class="title">🛡️ Console Admin</h1>
+    <section id="auth" class="panel">
+      <input id="pwd" type="password" placeholder="Mot de passe Admin" />
+      <button id="login" class="mt">Connexion</button>
+    </section>
 
-    <section class="panel mt" id="dashboard" style="display:none">
-      <div class="flex" style="justify-content:space-between;align-items:flex-start;flex-wrap:wrap;">
-        <div>
-          <div class="small">Room active</div>
-          <div class="code" id="roomCode"></div>
-          <div class="links small">
-            Join URL: <a id="joinLink" target="_blank"></a><br/>
-            TV URL: <a id="tvLink" target="_blank"></a>
-          </div>
-        </div>
-        <img id="qrImg" class="qr" alt="QR Join" />
+    <section id="dash" class="panel mt" style="display:none">
+      <div class="small">Session unique : GLOBAL</div>
+      <div class="flex mt">
+        <button id="lockBtn" class="secondary">Verrouiller</button>
+        <button id="resetBtn" class="danger">Reset session</button>
+        <a href="/tv" target="_blank" style="width:100%"><button>Ouvrir l'écran TV</button></a>
       </div>
-
       <div class="grid grid-2 mt">
-        <div class="panel">
-          <h3>Room Controls</h3>
-          <div class="grid">
-            <button id="toggleLockBtn" class="secondary">Lock / Unlock</button>
-            <button id="resetBtn" class="danger">Reset room</button>
-          </div>
-        </div>
-        <div class="panel">
-          <h3>TV Screens</h3>
-          <div class="grid">
-            <button data-screen="LOBBY" class="tvBtn">Afficher TV Lobby</button>
-            <button data-screen="WAITING" class="tvBtn secondary">Afficher TV Attente</button>
-            <button data-screen="PLACEHOLDER" class="tvBtn secondary">Afficher TV Placeholder</button>
-          </div>
-        </div>
+        <button class="tv" data-s="LOBBY">TV Lobby</button>
+        <button class="tv secondary" data-s="WAITING">TV Attente</button>
+        <button class="tv secondary" data-s="PLACEHOLDER">TV Placeholder</button>
       </div>
-
-      <div class="panel mt">
-        <h3>Roster Aventuriers</h3>
-        <ul class="roster" id="roster"></ul>
-      </div>
+      <h3 class="mt">Aventuriers</h3>
+      <ul id="roster" class="roster"></ul>
     </section>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io({ transports: ['websocket','polling'] });
-    const byId = (id) => document.getElementById(id);
-    const authPanel = byId('authPanel');
-    const dashboard = byId('dashboard');
-    const roomCodeEl = byId('roomCode');
-    const joinLink = byId('joinLink');
-    const tvLink = byId('tvLink');
-    const qrImg = byId('qrImg');
-    const roster = byId('roster');
-    const roomCodeInput = byId('roomCodeInput');
-    const adminKeyInput = byId('adminKey');
     let state = null;
-
-    const pathParts = location.pathname.split('/').filter(Boolean);
-    if (pathParts[0] === 'admin' && pathParts[1] && pathParts[1] !== 'NEW') roomCodeInput.value = pathParts[1].toUpperCase();
+    const byId = (id) => document.getElementById(id);
 
     function render(s) {
       state = s;
-      authPanel.style.display = 'none';
-      dashboard.style.display = '';
-      roomCodeEl.textContent = s.roomCode;
-      const joinUrl = `${location.origin}/join/${s.roomCode}`;
-      const tvUrl = `${location.origin}/tv/${s.roomCode}`;
-      joinLink.href = joinUrl; joinLink.textContent = joinUrl;
-      tvLink.href = tvUrl; tvLink.textContent = tvUrl;
-      qrImg.src = `/api/qr?data=${encodeURIComponent(joinUrl)}`;
-      byId('toggleLockBtn').textContent = s.locked ? 'Déverrouiller la room' : 'Verrouiller la room';
-
+      byId('lockBtn').textContent = s.locked ? 'Déverrouiller' : 'Verrouiller';
+      const roster = byId('roster');
       roster.innerHTML = '';
       s.players.forEach((p) => {
         const li = document.createElement('li');
-        li.innerHTML = `<div><span class="avatar">${p.avatar}</span> ${p.name} <span class="small">#${p.playerId.slice(0,6)}</span></div>
-          <div class="flex"><span class="status-chip ${p.status === 'CONNECTED' ? 'connected' : 'disconnected'}">${p.status}</span>
-          <button data-kick="${p.playerId}" class="danger" style="width:auto;padding:8px 10px">Kick</button></div>`;
+        li.innerHTML = `<div><strong>${p.name}</strong> <span class='small'>(${p.animal})</span></div>
+          <div class='flex'><span class='status-chip ${p.status==='CONNECTED'?'connected':'disconnected'}'>${p.status}</span>
+          <button data-k='${p.playerId}' class='danger' style='width:auto;padding:8px 10px'>Kick</button></div>`;
         roster.appendChild(li);
       });
-
-      roster.querySelectorAll('[data-kick]').forEach((btn) => btn.onclick = () => {
-        socket.emit('admin:kick', { roomCode: state.roomCode, playerId: btn.dataset.kick });
-      });
+      roster.querySelectorAll('[data-k]').forEach((b) => b.onclick = () => socket.emit('admin:kick', { playerId: b.dataset.k }));
     }
 
-    byId('createBtn').onclick = () => {
-      socket.emit('room:create', { adminKey: adminKeyInput.value }, (res) => {
-        if (!res?.ok) return alert(res?.error || 'Erreur création');
-        history.replaceState({}, '', `/admin/${res.roomCode}`);
-        socket.emit('admin:auth', { roomCode: res.roomCode, adminKey: adminKeyInput.value }, (authRes) => {
-          if (authRes?.ok) render(authRes.room);
-        });
+    byId('login').onclick = () => {
+      socket.emit('admin:auth', { password: byId('pwd').value }, (res) => {
+        if (!res?.ok) return alert('Mot de passe incorrect');
+        byId('auth').style.display = 'none';
+        byId('dash').style.display = '';
+        render(res.state);
       });
     };
 
-    byId('connectBtn').onclick = () => {
-      const roomCode = roomCodeInput.value.trim().toUpperCase();
-      socket.emit('admin:auth', { roomCode, adminKey: adminKeyInput.value }, (res) => {
-        if (!res?.ok) return alert(res?.error || 'Connexion refusée');
-        history.replaceState({}, '', `/admin/${roomCode}`);
-        render(res.room);
-      });
-    };
-
-    byId('toggleLockBtn').onclick = () => socket.emit('admin:lock', { roomCode: state.roomCode, locked: !state.locked });
-    byId('resetBtn').onclick = () => {
-      if (confirm('Reset complet de la room ?')) socket.emit('admin:reset', { roomCode: state.roomCode });
-    };
-    document.querySelectorAll('.tvBtn').forEach((btn) => {
-      btn.onclick = () => socket.emit('tv:screen', { roomCode: state.roomCode, screen: btn.dataset.screen });
-    });
+    byId('lockBtn').onclick = () => socket.emit('admin:lock', { locked: !state.locked });
+    byId('resetBtn').onclick = () => confirm('Reset ?') && socket.emit('admin:reset', {});
+    document.querySelectorAll('.tv').forEach((b) => b.onclick = () => socket.emit('tv:screen', { screen: b.dataset.s }));
 
     socket.on('tv:state', render);
-    socket.on('admin:revoked', () => alert('Session admin reprise depuis un autre écran.'));
   </script>
 </body>
 </html>

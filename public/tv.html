@@ -18,43 +18,22 @@
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io({ transports: ['websocket','polling'] });
-    const roomCode = (location.pathname.split('/')[2] || new URLSearchParams(location.search).get('room') || '').toUpperCase();
-    const view = document.getElementById('view');
     const meta = document.getElementById('meta');
+    const view = document.getElementById('view');
 
-    function playerCard(p) {
-      return `<article class="panel"><div class="flex"><span class="avatar">${p.avatar}</span>
-        <div><strong>${p.name}</strong><br/><span class="status-chip ${p.status === 'CONNECTED' ? 'connected':'disconnected'}">${p.status}</span></div>
-      </div></article>`;
-    }
-
-    function render(state) {
-      meta.textContent = `ROOM ${state.roomCode} • ${state.playerCount} aventuriers • ${state.locked ? 'VERROUILLÉE' : 'OUVERTE'}`;
-      if (state.screen === 'LOBBY') {
-        const joinUrl = `${location.origin}/join/${state.roomCode}`;
-        view.innerHTML = `<div class="grid grid-2 mt">
-            <div class="panel"><h2>Scannez pour rejoindre</h2><img class="qr" src="/api/qr?data=${encodeURIComponent(joinUrl)}" alt="QR"/></div>
-            <div class="panel"><h2>Code Room</h2><div class="code">${state.roomCode}</div>
-            <div class="small">Lien: ${joinUrl}</div></div>
-          </div>
-          <h2 class="mt">Tribu des joueurs</h2>
-          <section class="tv-players">${state.players.map(playerCard).join('')}</section>`;
-      } else if (state.screen === 'WAITING') {
-        view.innerHTML = `<div class="panel mt"><h2>Les Aventuriers se rassemblent…</h2><p>Préparez vos nerfs, l'épreuve débute bientôt autour du feu sacré.</p></div>`;
+    function render(s) {
+      meta.textContent = `SESSION UNIQUE • ${s.playerCount} aventuriers • ${s.locked ? 'VERROUILLÉE' : 'OUVERTE'}`;
+      if (s.screen === 'LOBBY') {
+        view.innerHTML = `<div class='panel mt'><h2>Les aventuriers arrivent...</h2></div>
+        <section class='tv-players mt'>${s.players.map(p => `<article class='panel'><strong>${p.name}</strong><div class='small'>Animal: ${p.animal}</div><span class='status-chip ${p.status==='CONNECTED'?'connected':'disconnected'}'>${p.status}</span></article>`).join('')}</section>`;
+      } else if (s.screen === 'WAITING') {
+        view.innerHTML = `<div class='panel mt'><h2>Les Aventuriers se rassemblent…</h2><p>Le conseil va commencer.</p></div>`;
       } else {
-        view.innerHTML = `<div class="panel mt"><h2>Épreuve à venir</h2><p>Le prochain mini-jeu sera branché ici sans refactor du backbone.</p></div>`;
+        view.innerHTML = `<div class='panel mt'><h2>Épreuve à venir</h2><p>Placeholder mini-jeu.</p></div>`;
       }
     }
 
-    if (!roomCode) {
-      view.innerHTML = '<h2>Code room manquant.</h2>';
-    } else {
-      socket.emit('tv:subscribe', { roomCode }, (res) => {
-        if (!res?.ok) view.innerHTML = `<h2>Erreur: ${res?.error || 'unknown'}</h2>`;
-        else render(res.room);
-      });
-      socket.on('tv:state', render);
-    }
+    socket.on('tv:state', render);
   </script>
 </body>
 </html>

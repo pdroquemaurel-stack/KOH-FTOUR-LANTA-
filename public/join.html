@@ -3,28 +3,25 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Player • Koh Lanta</title>
+  <title>Aventurier • Koh Lanta</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div class="container">
-    <h1 class="title">📱 Rejoindre la Tribu</h1>
-    <section class="panel" id="joinPanel">
+    <h1 class="title">🌴 Entrée Aventurier</h1>
+    <section id="form" class="panel">
       <div class="grid">
-        <input id="roomCode" placeholder="Code room" />
-        <input id="name" placeholder="Ton pseudo d'aventurier" maxlength="24" />
-        <select id="avatar">
-          <option>🗿</option><option>🔥</option><option>🐍</option><option>🦁</option><option>🌴</option><option>🦂</option><option>🦅</option>
-        </select>
-        <button id="joinBtn">Entrer dans la room</button>
+        <input id="name" placeholder="Ton nom" maxlength="24" />
+        <input id="animal" placeholder="Ton animal fétiche" maxlength="24" />
+        <button id="join">Rejoindre la tribu</button>
       </div>
     </section>
 
-    <section class="panel mt" id="waitingPanel" style="display:none">
-      <h2>Tu es dans la Tribu ✅</h2>
-      <p id="playerInfo"></p>
-      <p class="small" id="tvHint">En attente des instructions de l'Admin…</p>
-      <button id="readyBtn" class="secondary">Je suis prêt</button>
+    <section id="ok" class="panel mt" style="display:none">
+      <h2>Bienvenue dans la tribu ✅</h2>
+      <p id="me"></p>
+      <p id="hint" class="small">En attente...</p>
+      <button id="ready" class="secondary">Je suis prêt</button>
     </section>
   </div>
 
@@ -32,77 +29,46 @@
   <script>
     const socket = io({ transports: ['websocket','polling'] });
     const byId = (id) => document.getElementById(id);
-    const pathRoom = (location.pathname.split('/')[2] || '').toUpperCase();
-    const roomInput = byId('roomCode');
-    roomInput.value = pathRoom;
+    let current = { playerId: '', reconnectToken: '', ready: false };
+    const KEY = 'kla_singleton_player';
 
-    let current = { roomCode: '', playerId: '', reconnectToken: '', ready: false };
+    function save(d){ localStorage.setItem(KEY, JSON.stringify(d)); }
+    function load(){ try { return JSON.parse(localStorage.getItem(KEY)||'null'); } catch { return null; } }
 
-    function storageKey(roomCode) { return `kla_player_session_${roomCode}`; }
-
-    function loadSession(roomCode) {
-      try { return JSON.parse(localStorage.getItem(storageKey(roomCode)) || 'null'); } catch { return null; }
-    }
-
-    function saveSession(roomCode, data) {
-      localStorage.setItem(storageKey(roomCode), JSON.stringify(data));
-    }
-
-    function setJoined(player, roomCode) {
-      current.roomCode = roomCode;
+    function setJoined(player) {
       current.playerId = player.playerId;
       current.reconnectToken = player.reconnectToken;
-      byId('joinPanel').style.display = 'none';
-      byId('waitingPanel').style.display = '';
-      byId('playerInfo').textContent = `${player.avatar} ${player.name} • Room ${roomCode}`;
-      saveSession(roomCode, { playerId: player.playerId, reconnectToken: player.reconnectToken, name: player.name, avatar: player.avatar });
+      byId('form').style.display = 'none';
+      byId('ok').style.display = '';
+      byId('me').textContent = `${player.name} • Animal fétiche: ${player.animal}`;
+      save({ playerId: player.playerId, reconnectToken: player.reconnectToken, name: player.name, animal: player.animal });
     }
 
-    byId('joinBtn').onclick = () => {
-      const roomCode = roomInput.value.trim().toUpperCase();
-      const name = byId('name').value.trim() || 'Aventurier';
-      const avatar = byId('avatar').value;
-      const sess = loadSession(roomCode);
-      socket.emit('room:join', {
-        roomCode,
-        playerId: sess?.playerId,
-        reconnectToken: sess?.reconnectToken,
-        name,
-        avatar
-      }, (res) => {
-        if (!res?.ok) return alert(res?.error || 'Join impossible');
-        setJoined(res.player, roomCode);
+    byId('join').onclick = () => {
+      const sess = load();
+      const name = byId('name').value.trim() || sess?.name || 'Aventurier';
+      const animal = byId('animal').value.trim() || sess?.animal || 'Tigre';
+      socket.emit('room:join', { playerId: sess?.playerId, reconnectToken: sess?.reconnectToken, name, animal }, (res) => {
+        if (!res?.ok) return alert(res?.error || 'Impossible de rejoindre');
+        setJoined(res.player);
       });
     };
 
-    byId('readyBtn').onclick = () => {
+    byId('ready').onclick = () => {
       current.ready = !current.ready;
-      socket.emit('player:update', {
-        roomCode: current.roomCode,
-        playerId: current.playerId,
-        ready: current.ready
-      });
-      byId('readyBtn').textContent = current.ready ? 'Prêt ✅' : 'Je suis prêt';
+      socket.emit('player:update', { playerId: current.playerId, ready: current.ready });
+      byId('ready').textContent = current.ready ? 'Prêt ✅' : 'Je suis prêt';
     };
 
     socket.on('tv:state', (s) => {
-      if (s.roomCode !== current.roomCode) return;
-      byId('tvHint').textContent = s.screen === 'LOBBY' ? 'Lobby en cours…' : s.screen === 'WAITING' ? 'Attente collective…' : 'Épreuve à venir…';
+      byId('hint').textContent = s.screen === 'LOBBY' ? 'Lobby...' : s.screen === 'WAITING' ? 'Attente collective...' : 'Épreuve à venir...';
     });
 
-    if (pathRoom) {
-      const sess = loadSession(pathRoom);
-      if (sess?.playerId && sess?.reconnectToken) {
-        socket.emit('room:join', {
-          roomCode: pathRoom,
-          playerId: sess.playerId,
-          reconnectToken: sess.reconnectToken,
-          name: sess.name,
-          avatar: sess.avatar
-        }, (res) => {
-          if (res?.ok) setJoined(res.player, pathRoom);
-        });
-      }
+    const sess = load();
+    if (sess?.playerId && sess?.reconnectToken) {
+      socket.emit('room:join', { playerId: sess.playerId, reconnectToken: sess.reconnectToken, name: sess.name, animal: sess.animal }, (res) => {
+        if (res?.ok) setJoined(res.player);
+      });
     }
   </script>
 </body>
