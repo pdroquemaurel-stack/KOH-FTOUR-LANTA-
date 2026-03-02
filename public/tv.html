@@ -4,10 +4,6 @@
     <div id="bigQuestion" class="tv-question"></div>
     <div id="bigRule" class="tv-rule"></div>
     <div id="resultsBlock" class="tv-results" style="display:none"></div>
-    <div class="tv-progress">
-      <div><strong>✅ Ont répondu :</strong> <span id="answeredList">-</span></div>
-      <div><strong>⏳ En attente :</strong> <span id="pendingList">-</span></div>
-    </div>
     <div id="playersBar" class="tv-players-bar"></div>
   </section>
   <aside class="tv-scoreboard">
@@ -21,8 +17,6 @@ const socket=io({transports:['websocket','polling']});
 const bigQuestion=document.getElementById('bigQuestion');
 const bigRule=document.getElementById('bigRule');
 const playersBar=document.getElementById('playersBar');
-const answeredList=document.getElementById('answeredList');
-const pendingList=document.getElementById('pendingList');
 const scoreList=document.getElementById('scoreList');
 const resultsBlock=document.getElementById('resultsBlock');
 const bgMusic=document.getElementById('bgMusic');
@@ -36,7 +30,7 @@ function reportAudioError(reason){
 
 function rulesFor(s){
   const map={GAME_A:'Vote pour un joueur. 1 vote unique.',GAME_B:'Trouve la bonne réponse le plus vite possible.',GAME_C:'Devine le juste prix le plus proche.',GAME_D:'Donne tes 3 meilleures réponses.',GAME_E:'Choisis PARTAGER ou TRAHIR.',GAME_F:'Vise verticalement puis horizontalement.',COUNCIL:'Vote contre un joueur.',FINAL:'Parie puis réponds à la question finale.'};
-  if(map[s.phase]) return s.resultsShown?'Résultats affichés. Réponses fermées.':map[s.phase];
+  if(map[s.phase]) return map[s.phase];
   return '';
 }
 function questionFor(s){
@@ -58,28 +52,39 @@ function arrowsIcons(p){
 
 function renderResults(s){
   const r=s.gameState?.results;
-  if(!s.resultsShown||!r){resultsBlock.style.display='none'; return;}
+  if(!s.resultsShown||!r){resultsBlock.style.display='none'; resultsBlock.classList.remove('archery-results'); return;}
   const nameById = Object.fromEntries((s.rankings||[]).map((p)=>[p.playerId,p.name]));
+  resultsBlock.classList.remove('archery-results');
   if(r.game==='A'){
     const top3=(r.top3||[]).map((x,idx)=>`<li>#${idx+1} ${nameById[x.playerId]||x.playerId} (${x.votesCount})</li>`).join('');
     const impacts=(s.rankings||[]).map((p)=>{const d=(r.impacts||{})[p.playerId]||0; const cls=d>0?'plus':(d<0?'minus':''); const text=d>0?`+${d}`:`${d}`; return `<li>${p.name} <span class='${cls}'>${text}</span></li>`}).join('');
     resultsBlock.innerHTML=`<h3>Top 3 des plus cités</h3><ol>${top3||'<li>Aucun</li>'}</ol><h3>Impact points</h3><ul>${impacts}</ul>`;
   } else if(r.game==='F') {
     const colors=r.playerColors||{};
-    const shots=(r.shots||[]).map((shot)=>{
+    const participatedShots=(r.shots||[]);
+    const shots=participatedShots.map((shot)=>{
       const left=50 + (shot.x/2);
       const top=50 - (shot.y/2);
       const color=colors[shot.pid]||'#fff';
       const name=nameById[shot.pid]||shot.pid;
       return `<span class='archery-shot-wrap' style='left:${left}%;top:${top}%;color:${color}'><span class='archery-shot' style='background:${color}' title='${name}'></span><span class='archery-shot-name'>${name}</span></span>`;
     }).join('');
-    const closest=nameById[r.closest]||r.closest||'-';
-    const farthest=nameById[r.farthest]||r.farthest||'-';
+    const withDistance=participatedShots.map((shot)=>({
+      pid:shot.pid,
+      distance:Math.hypot(Number(shot.x)||0, Number(shot.y)||0)
+    }));
+    withDistance.sort((a,b)=>a.distance-b.distance);
+    const closestPid=withDistance[0]?.pid;
+    const farthestPid=withDistance[withDistance.length-1]?.pid;
+    const closest=nameById[closestPid]||closestPid||'-';
+    const farthest=nameById[farthestPid]||farthestPid||'-';
     const breakInfo=r.breakChoice?`<p>${nameById[r.breakChoice.by]||r.breakChoice.by} casse une flèche de ${nameById[r.breakChoice.target]||r.breakChoice.target}</p>`:'';
     const winner=r.winner?`<p><strong>🏆 Vainqueur: ${nameById[r.winner]||r.winner}</strong></p>`:'';
     const noShot=(r.noShot||[]).length?`<p>❌ Sans tir (perdent 1 flèche): ${(r.noShot||[]).map((pid)=>nameById[pid]||pid).join(', ')}</p>`:'';
-    resultsBlock.innerHTML=`<h3>Résultats Tir à l'arc</h3><div class='archery-target'><img src='/Visuels/archery_target_board.png' alt='Cible'/>${shots}</div><p>🎯 Plus proche: <strong>${closest}</strong></p><p>💥 Plus éloigné: <strong>${farthest}</strong> (perd 1 flèche)</p>${noShot}${breakInfo}${winner}`;
+    resultsBlock.classList.add('archery-results');
+    resultsBlock.innerHTML=`<h3>Résultats Tir à l'arc</h3><div class='archery-target'><img src='/Visuels/archery_target_board.png' alt='Cible'/>${shots}</div><p>🎯 Plus proche (participants): <strong>${closest}</strong></p><p>💥 Plus éloigné (participants): <strong>${farthest}</strong> (perd 1 flèche)</p>${noShot}${breakInfo}${winner}`;
   } else {
+    resultsBlock.classList.remove('archery-results');
     const pretty=JSON.stringify(r,(k,v)=>nameById[v]||v,2);
     resultsBlock.innerHTML=`<h3>Résultats ${r.game||''}</h3><pre>${pretty}</pre>`;
   }
@@ -94,12 +99,6 @@ socket.on('game:state',(s)=>{
   renderResults(s);
   const nameById = Object.fromEntries((s.rankings||[]).map((p)=>[p.playerId,p.name]));
   const answeredIds=(s.gameProgress?.answeredPlayerIds||s.gameAProgress?.answeredPlayerIds||[]);
-  const pendingIds=(s.gameProgress?.pendingPlayerIds||s.gameAProgress?.pendingPlayerIds||[]);
-  const answered=answeredIds.map((id)=>nameById[id]||id);
-  const pending=pendingIds.map((id)=>nameById[id]||id);
-  answeredList.textContent = answered.length ? answered.join(', ') : '-';
-  pendingList.textContent = pending.length ? pending.join(', ') : '-';
-
   playersBar.innerHTML=(s.rankings||[]).map(p=>`<span class='${answeredIds.includes(p.playerId)?'answered':''}'>${p.name}</span>`).join('');
   scoreList.innerHTML=(s.rankings||[]).map(p=>`<li><span class='${answeredIds.includes(p.playerId)?'answered':''}'>${p.name} ${arrowsIcons(p)}</span><strong>${p.score}</strong></li>`).join('');
 });
