@@ -42,7 +42,7 @@ button.secondary { background: linear-gradient(180deg, #6c7c66, #42503f); color:
 .tv-stage {
   background:
     linear-gradient(rgba(0,0,0,.42), rgba(0,0,0,.56)),
-    url('/Visuels/tv_background_main_1920x1080.png') center / cover no-repeat fixed;
+    url('/Visuels/1920x1080.png') center / cover no-repeat fixed;
 }
 .tv-layout {
   min-height: 100vh;
@@ -89,3 +89,12 @@ button.danger { background: linear-gradient(180deg, #f07a7a, #b03232); color: #f
 
 .tv-arrows { display:inline-flex; gap:4px; margin-left:8px; vertical-align:middle; }
 .tv-arrows img { width: 18px; height: 18px; object-fit: contain; }
+
+
+.archery-mobile-wrap { display:grid; gap:10px; justify-items:center; }
+.archery-mobile-target { position: relative; width: min(92vw, 520px); aspect-ratio: 1/1; }
+.archery-mobile-target > img:first-child { width:100%; height:100%; object-fit:contain; }
+.archery-mobile-marker { position:absolute; width: 44px; height: 44px; transform: translate(-50%, -50%); filter: drop-shadow(0 2px 6px rgba(0,0,0,.6)); }
+.archery-arrows-bottom { display:flex; justify-content:center; gap:14px; margin-top:8px; }
+.archery-arrows-bottom img { width:42px; height:42px; object-fit:contain; }
+#fireBtn { max-width: 320px; font-size: 1.2rem; padding: 12px; }
