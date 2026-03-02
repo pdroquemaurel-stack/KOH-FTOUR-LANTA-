@@ -436,6 +436,7 @@ io.on('connection', (socket) => {
       touch(); broadcastState();
       io.emit('presence:update', { playerId: pid, status: 'DISCONNECTED', lastSeenAt: p.lastSeenAt });
     }
+    SESSION.socketsByPlayerId.delete(socket.id);
   });
 });
 
