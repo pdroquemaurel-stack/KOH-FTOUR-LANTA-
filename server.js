@@ -48,7 +48,9 @@ const SESSION = {
   immunityPlayerId: null,
   finaleTop: FINALE_TOP,
   started: false,
-  paused: false
+  paused: false,
+  resultsShown: false,
+  tvMuted: false
 };
 
 function now() { return Date.now(); }
@@ -97,6 +99,8 @@ function buildState() {
     phaseIndex: SESSION.phaseIndex,
     phaseTimer: SESSION.phaseTimer,
     answerLocked: SESSION.answerLocked,
+    resultsShown: SESSION.resultsShown,
+    tvMuted: SESSION.tvMuted,
     councilMode: SESSION.councilMode,
     councilPenalty: SESSION.councilPenalty,
     immunityPlayerId: SESSION.immunityPlayerId,
@@ -123,6 +127,7 @@ function setPhase(phase) {
   SESSION.answerLocked = false;
   SESSION.paused = false;
   SESSION.phaseTimer = { running: false, endsAt: null, remainingMs: 0 };
+  SESSION.resultsShown = false;
 }
 
 function nextPhase() {
@@ -179,14 +184,52 @@ function resolveGameA() {
   const votes = SESSION.gameState.answers;
   const tally = {};
   Object.values(votes).forEach((target) => { tally[target] = (tally[target] || 0) + 1; });
-  const top = Object.entries(tally).sort((a, b) => b[1] - a[1])[0]?.[0];
+
+  const sortedTop = Object.entries(tally).sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]));
+  const top3 = sortedTop.slice(0, 3).map(([playerId, votesCount]) => ({ playerId, votesCount }));
+  const top = top3[0]?.playerId || null;
+
+  const voteCountsByPlayer = Object.fromEntries(sortedTop.map(([pid, count]) => [pid, count]));
+  const impacts = {};
   for (const p of SESSION.players.values()) {
     ensurePlayerScore(p);
-    if (votes[p.playerId] === top) p.score += 1;
-    if (p.playerId === top) p.score += 2;
+    let delta = 0;
+    const votedFor = votes[p.playerId];
+    if (votedFor && top && votedFor === top) delta += 1;
+    if (votedFor && top && votedFor !== top) delta += 0;
+    if (p.playerId === top) delta -= 2;
+    if (votedFor && voteCountsByPlayer[votedFor] === 1) delta -= 1;
+    p.score += delta;
+    impacts[p.playerId] = delta;
   }
-  SESSION.history.push({ at: nowIso(), game: 'A', winner: top, tally });
-  publishResults({ game: 'A', tally, top });
+  const payload = { game: 'A', tally, top, top3, impacts };
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), game: 'A', winner: top, tally, top3, impacts });
+  publishResults(payload);
+}
+
+function showResultsCurrentPhase() {
+  if (SESSION.resultsShown) return;
+  if (SESSION.phase === 'GAME_A') resolveGameA();
+  else return;
+  SESSION.answerLocked = true;
+  SESSION.resultsShown = true;
+}
+
+function resetSession() {
+  SESSION.players.clear();
+  SESSION.socketsByPlayerId.clear();
+  SESSION.phase = 'LOBBY';
+  SESSION.phaseIndex = FLOW.indexOf('LOBBY');
+  SESSION.phaseStartedAt = null;
+  SESSION.phaseTimer = { running: false, endsAt: null, remainingMs: 0 };
+  SESSION.answerLocked = false;
+  SESSION.resultsShown = false;
+  SESSION.gameState = {};
+  SESSION.history = [];
+  SESSION.immunityPlayerId = null;
+  SESSION.started = false;
+  SESSION.paused = false;
 }
 
 function resolveGameB() {
@@ -303,7 +346,7 @@ function serveFile(res, filePath) {
   fs.readFile(filePath, (err, data) => {
     if (err) return sendJson(res, 404, { error: 'Not found' });
     const ext = path.extname(filePath);
-    const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.md': 'text/plain; charset=utf-8' };
+    const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.md': 'text/plain; charset=utf-8', '.mp3': 'audio/mpeg' };
     res.writeHead(200, { 'Content-Type': types[ext] || 'application/octet-stream' });
     res.end(data);
   });
@@ -389,6 +432,16 @@ io.on('connection', (socket) => {
       } else {
         return ack?.({ ok: false, error: 'INVALID_SCORE_PAYLOAD' });
       }
+    }
+    else if (command === 'SHOW_RESULTS') {
+      showResultsCurrentPhase();
+    }
+    else if (command === 'SET_TV_MUTED') {
+      SESSION.tvMuted = !!payload?.muted;
+    }
+    else if (command === 'RESET_GAME') {
+      resetSession();
+      io.emit('game:reset', { at: nowIso() });
     }
     touch();
     broadcastState();
