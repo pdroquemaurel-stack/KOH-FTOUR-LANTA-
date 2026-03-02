@@ -182,7 +182,13 @@
       const a = byId('action');
       const gs = st.gameState || {};
       const ctx=`${phase}|${gs.currentIndex||''}|${gs.prompt||gs.question||gs.item||gs.theme||''}`;
-      if(ctx!==lastContextKey){ byId('ack').textContent=''; byId('ack').classList.remove('error-msg'); lastContextKey=ctx; }
+      const sameContext = ctx===lastContextKey;
+      if(!sameContext){ byId('ack').textContent=''; byId('ack').classList.remove('error-msg'); lastContextKey=ctx; }
+      const active = document.activeElement;
+      const typingInsideAction = active && active.tagName==='INPUT' && a.contains(active);
+      if (sameContext && typingInsideAction && !st.resultsShown) {
+        return;
+      }
       document.body.classList.toggle('archery-active', phase === 'GAME_F');
       if (!['GAME_B','GAME_C','GAME_D','FINAL'].includes(phase)) answerUiState = { key: '', values: {}, validated: false };
       if (st.resultsShown) { a.innerHTML = '<p>Résultats affichés: réponses fermées.</p>'; return; }
@@ -192,7 +198,7 @@
         resetAnswerState(k);
         const v = answerUiState.values.ans || '';
         a.innerHTML = `<input id='ans' class='${answerUiState.validated ? 'answer-validated' : ''}' placeholder='Ta réponse' value="${String(v).replace(/"/g,'&quot;')}"/><button id='s'>Valider</button><p class='small'>${answerUiState.validated ? '✅ Réponse validée' : ''}</p>`;
-        byId('ans')?.addEventListener('input', (ev) => { answerUiState.values.ans = ev.target.value; answerUiState.validated = false; renderAction(); });
+        byId('ans')?.addEventListener('input', (ev) => { answerUiState.values.ans = ev.target.value; answerUiState.validated = false; ev.target.classList.remove('answer-validated'); const sm=a.querySelector('.small'); if(sm) sm.textContent=''; });
         byId('s').onclick = () => send('B_ANSWER', { answer: byId('ans').value }, (ok) => { if (ok) { answerUiState.values.ans = byId('ans').value; answerUiState.validated = true; renderAction(); } });
       }
       else if (phase === 'GAME_C') {
