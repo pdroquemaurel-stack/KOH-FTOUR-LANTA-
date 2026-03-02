@@ -38,26 +38,94 @@ button.secondary { background: linear-gradient(180deg, #6c7c66, #42503f); color:
 .grid { display:grid; gap:12px; }
 .grid-2 { grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); }
 
-.character-picker { display: grid; gap: 8px; }
-.character-carousel-wrap { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 8px; }
-.character-track { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; }
+/* --- Carousel layout --- */
+.character-picker {
+  display: grid;
+  gap: 8px;
+}
+
+.character-carousel-wrap {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.character-track {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  align-items: stretch; /* cards same height */
+}
+
+/* --- Card: fixed size (same colored frame for all) --- */
 .character-card {
-  width: 100%;
+  width: 150px;              /* keep or use clamp(...) */
+  height: 190px;             /* FIXED -> identical frame for all */
   border-radius: 18px;
   border: 3px solid var(--character-color, #ffb347);
-  background: rgba(0,0,0,.45);
+  background: rgba(0, 0, 0, 0.45);
   color: var(--bone);
+
+  padding: 10px 8px;
+  box-sizing: border-box;
+
+  display: grid;
+  grid-template-rows: 1fr auto; /* image zone + label zone */
+  gap: 8px;
+  justify-items: center;
+  align-items: center;
+
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+/* Image zone wrapper (requires <div class="character-thumb"> around img) */
+.character-thumb {
+  width: 100%;
+  height: 120px;             /* FIXED -> uniform image area */
   display: grid;
   place-items: center;
-  gap: 4px;
-  padding: 8px 6px;
-  transition: transform .15s ease, opacity .15s ease;
 }
-.character-card img { width: 100%; max-width: 88px; aspect-ratio: 1/1; object-fit: contain; }
-.character-card span { font-size: .78rem; text-align: center; line-height: 1.2; }
-.character-card:not(.center) { opacity: .72; transform: scale(.92); }
-.character-card.center { opacity: 1; transform: scale(1); }
-.character-card.selected { box-shadow: 0 0 0 3px rgba(255,255,255,.24) inset, 0 0 14px color-mix(in oklab, var(--character-color, #fff) 60%, transparent); }
+
+/* Never crop, always fit inside */
+.character-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;       /* key requirement */
+  object-position: center;
+  max-width: 110px;          /* optional visual cap */
+}
+
+/* Label: avoid resizing cards when names are long */
+.character-card span {
+  font-size: 0.78rem;
+  text-align: center;
+  line-height: 1.15;
+  max-width: 100%;
+  overflow: hidden;
+
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* Existing focus/selection effects */
+.character-card:not(.center) {
+  opacity: 0.72;
+  transform: scale(0.92);
+}
+
+.character-card.center {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.character-card.selected {
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.24) inset,
+    0 0 14px color-mix(in oklab, var(--character-color, #fff) 60%, transparent);
+}
+
 
 /* TV immersive */
 .tv-stage {
