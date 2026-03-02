@@ -23,6 +23,26 @@ else if(phase==='GAME_B'){a.innerHTML=`<input id='ans' placeholder='Ta réponse'
 else if(phase==='GAME_C'){a.innerHTML=`<input id='g' type='number' placeholder='Ton prix'/><button id='s'>Valider</button>`;byId('s').onclick=()=>send('C_GUESS',{value:Number(byId('g').value)});}
 else if(phase==='GAME_D'){a.innerHTML=`<input id='a1' placeholder='Réponse 1'/><input id='a2' placeholder='Réponse 2'/><input id='a3' placeholder='Réponse 3'/><button id='s'>Valider Top3</button>`;byId('s').onclick=()=>send('D_TOP3',{answers:[byId('a1').value,byId('a2').value,byId('a3').value]});}
 else if(phase==='GAME_E'){a.innerHTML=`<div class='grid grid-2'><button id='sh'>Partager</button><button id='be' class='danger'>Trahir</button></div>`;byId('sh').onclick=()=>send('E_CHOICE',{choice:'SHARE'});byId('be').onclick=()=>send('E_CHOICE',{choice:'BETRAY'});}
+else if(phase==='GAME_F'){
+  const shot=gs.shots?.[me.playerId]||{};
+  const alive=(st.rankings||[]).filter((p)=>(p.arrows??2)>0 && !p.eliminated);
+  if(gs.stage==='BREAK_SELECT'){
+    if(gs.closest!==me.playerId){ a.innerHTML='<p>En attente du choix du meilleur tireur...</p>'; return; }
+    const opts=alive.filter((p)=>p.playerId!==me.playerId).map((p)=>`<option value='${p.playerId}'>${p.name}</option>`).join('');
+    a.innerHTML=`<p>Tu es le plus proche 🎯 : choisis un joueur qui perd 1 flèche.</p><select id='bt'>${opts}</select><button id='s'>Casser une flèche</button>`;
+    byId('s').onclick=()=>send('F_BREAK_TARGET',{targetPlayerId:byId('bt').value});
+    return;
+  }
+  a.innerHTML=`
+    <label>Visée verticale (${typeof shot.vertical==='number'?shot.vertical:'-'})</label>
+    <input id='vy' type='range' min='-100' max='100' value='${typeof shot.vertical==='number'?shot.vertical:0}'/>
+    <button id='sy'>Valider axe vertical</button>
+    <label>Visée horizontale (${typeof shot.horizontal==='number'?shot.horizontal:'-'})</label>
+    <input id='vx' type='range' min='-100' max='100' value='${typeof shot.horizontal==='number'?shot.horizontal:0}'/>
+    <button id='sx'>Valider axe horizontal</button>`;
+  byId('sy').onclick=()=>send('F_AIM_VERTICAL',{value:Number(byId('vy').value)});
+  byId('sx').onclick=()=>send('F_AIM_HORIZONTAL',{value:Number(byId('vx').value)});
+}
 else if(phase==='COUNCIL'){a.innerHTML=`<select id='v'>${playerList()}</select><button id='s'>Voter secret</button>`;byId('s').onclick=()=>send('COUNCIL_VOTE',{targetPlayerId:byId('v').value});}
 else if(phase==='FINAL'){const finalist=(gs.finalists||[]).includes(me.playerId); if(!finalist){a.innerHTML='<p>Tu n\'es pas finaliste.</p>';return;} a.innerHTML=`<input id='bet' type='number' min='0' max='5' placeholder='Mise 0-5'/><input id='ans' placeholder='Réponse finale'/><button id='s'>Envoyer finale</button>`;byId('s').onclick=()=>send('FINAL_BET_ANSWER',{bet:Number(byId('bet').value),answer:byId('ans').value});}
 else a.innerHTML='<p>En attente de la prochaine épreuve...</p>';

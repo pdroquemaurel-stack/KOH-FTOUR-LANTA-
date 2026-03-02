@@ -63,10 +63,11 @@ button.secondary { background: linear-gradient(180deg, #6c7c66, #42503f); color:
 .tv-players-bar span.answered { color: var(--answered); border-color: rgba(99,210,140,.8); }
 .tv-progress { display: grid; gap: 6px; margin: 0 auto 8px; width: min(1200px, 92vw); background: rgba(8,10,9,.45); border-radius: 10px; padding: 8px 12px; font-size: clamp(1rem,1.8vw,1.4rem); }
 .tv-scoreboard { background: rgba(8,10,9,.62); border: 1px solid rgba(255,216,157,.45); border-radius: 12px; padding: 12px; }
-.tv-scoreboard h3 { margin: 4px 0 10px; }
-.tv-scoreboard ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
-.tv-scoreboard li { display:flex; justify-content:space-between; gap:8px; }
-.tv-scoreboard .answered { color: var(--answered); }
+.tv-scoreboard h3 { margin: 4px 0 12px; font-size: clamp(1.4rem,2.4vw,2rem); }
+.tv-scoreboard ol { margin: 0; padding-left: 24px; display: grid; gap: 10px; font-size: clamp(1.2rem,2vw,1.9rem); }
+.tv-scoreboard li { display:flex; justify-content:space-between; gap:10px; align-items:center; }
+.tv-scoreboard li strong { font-size: clamp(1.4rem,2.4vw,2.2rem); }
+.tv-scoreboard .answered { color: var(--answered); font-weight: 800; }
 
 
 button.danger { background: linear-gradient(180deg, #f07a7a, #b03232); color: #fff3f3; }
@@ -81,3 +82,10 @@ button.danger { background: linear-gradient(180deg, #f07a7a, #b03232); color: #f
 .score-bottom { position: sticky; bottom: 10px; margin: 14px auto 0; width: fit-content; }
 .error-msg { color: #ff7d7d; font-weight: 800; }
 #play.panel { padding-bottom: 88px; }
+
+.archery-target { position: relative; width: min(520px, 70vw); aspect-ratio: 1/1; margin: 10px auto; }
+.archery-target img { width: 100%; height: 100%; object-fit: contain; }
+.archery-shot { position: absolute; width: 14px; height: 14px; border-radius: 50%; border: 2px solid #111; transform: translate(-50%, -50%); box-shadow: 0 0 8px rgba(0,0,0,.6); }
+
+.tv-arrows { display:inline-flex; gap:4px; margin-left:8px; vertical-align:middle; }
+.tv-arrows img { width: 18px; height: 18px; object-fit: contain; }
