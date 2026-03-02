@@ -1,378 +1,46 @@
-<!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8" />
-  <title>Party Buzzer 3.0 - TV/Admin</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="/style.css" />
-</head>
-<body class="tv-body">
-  <main class="container tv-layout-3 tight">
-    <header class="tv-header card">
-      <div class="tv-header-left"><h1 style="margin:0;">Party Buzzer 3.0</h1></div>
-      <div class="tv-header-right">
-        <div class="mode-switch" id="modeSwitch">
-          <label class="mode-pill"><input type="radio" name="mode" value="buzzer" checked /> Buzzer</label>
-          <label class="mode-pill"><input type="radio" name="mode" value="quiz" /> Quiz V/F</label>
-          <label class="mode-pill"><input type="radio" name="mode" value="guess" /> Devine</label>
-          <label class="mode-pill"><input type="radio" name="mode" value="free" /> Réponse libre</label>
-          <label class="mode-pill"><input type="radio" name="mode" value="most" /> Qui est le plus</label>
-        </div>
-      </div>
-    </header>
-
-    <!-- Colonne gauche -->
-    <aside class="tv-left card">
-      <section class="tv-room">
-        <div class="row" style="display:flex; align-items:center; justify-content:space-between; gap:.8rem;">
-          <div>
-            <div class="hint">Code de salle</div>
-            <div class="code" id="roomCode"></div>
-          </div>
-          <div class="tv-qr">
-            <a id="qrLink" href="#" target="_blank" rel="noopener" title="Ouvrir la page de join">
-              <img id="qr" alt="QR code vers /join" width="120" height="120" />
-            </a>
-          </div>
-        </div>
-        <div class="row" style="display:flex; gap:.6rem; flex-wrap:wrap;">
-          <button id="regenBtn" title="Regénérer la salle">Nouvelle salle</button>
-        </div>
-        <p class="row"><a href="/">Retour à l'accueil</a></p>
-      </section>
-
-      <section class="tv-status-box">
-        <div id="status" class="tv-status"></div>
-        <div class="room-lock-toggle">
-          <label>
-            <input id="roomLockToggle" type="checkbox" />
-            Fermer la salle (bloquer les nouveaux joueurs)
-          </label>
-        </div>
-        <div class="row" style="margin-top:.55rem;">
-          <button id="gameBuilderBtn" class="btn-cyan" type="button">Créer une GAME</button>
-        </div>
-
-        <div id="timerRing" class="timer-ring" style="display:none;">
-          <div class="timer-value">0</div>
-          <div class="timer-label">Timer</div>
-        </div>
-      </section>
-    </aside>
-
-    <!-- Centre -->
-    <section class="tv-center">
-      <!-- Buzzer -->
-      <section id="buzzerPanel" class="card" data-game-panel="buzzer">
-        <h2>Buzzer</h2>
-        <div class="row btn-row">
-          <button id="startRoundBtn" class="btn-green">Démarrer le tour</button>
-          <button id="resetRoundBtn">Réinitialiser le tour</button>
-        </div>
-      </section>
-
-      <!-- Quiz -->
-      <section id="quizPanel" class="card" style="display:none;" data-game-panel="quiz">
-        <h2>Quiz Vrai/Faux</h2>
-
-        <div class="card soft">
-          <h3 style="margin-top:0;">Banque de questions</h3>
-          <div class="row btn-row">
-            <button id="quizLoadBtn">Charger banque</button>
-            <span id="quizLoadedInfo" class="hint"></span>
-          </div>
-        </div>
-
-        <div class="field">
-          <label>Question</label>
-          <input id="quizQuestion" type="text" placeholder="Ex: Le Soleil est une étoile ?" />
-        </div>
-        <div class="row btn-row">
-          <label><input type="radio" name="quizCorrect" id="quizTrue" value="true" checked /> Vrai</label>
-          <label><input type="radio" name="quizCorrect" id="quizFalse" value="false" /> Faux</label>
-        </div>
-        <div class="row btn-row" style="flex-wrap:wrap;">
-          <div class="field" style="min-width:160px; max-width:220px;">
-            <label>Durée de réponse (secondes)</label>
-            <input id="quizSeconds" type="number" min="1" max="30" value="8" />
-            <div class="duration-presets" data-target="quizSeconds">
-              <button type="button" data-seconds="5">5s</button><button type="button" data-seconds="8">8s</button><button type="button" data-seconds="12">12s</button>
-            </div>
-          </div>
-          <div class="field" style="min-width:160px; max-width:220px;">
-            <label>Questions dans la série</label>
-            <input id="quizSeriesCount" type="number" min="1" max="50" value="10" />
-          </div>
-        </div>
-        <div class="row btn-row">
-          <button id="quizStartBtn" class="btn-green">Poser (3-2-1)</button>
-          <button id="quizRandomAskBtn" class="btn-cyan">Question aléatoire</button>
-          <button id="quizSeriesBtn" class="btn-cyan">Lancer une série</button>
-        </div>
-        <div id="quizInfo" class="row hint"></div>
-      </section>
-
-      <!-- Devine -->
-      <section id="guessPanel" class="card" style="display:none;" data-game-panel="guess">
-        <h2>Devine le nombre</h2>
-
-        <div class="card soft">
-          <h3 style="margin-top:0;">Banque</h3>
-          <div class="row btn-row">
-            <button id="guessLoadBtn">Charger banque</button>
-            <span id="guessLoadedInfo" class="hint"></span>
-          </div>
-        </div>
-
-        <div class="field">
-          <label>Question</label>
-          <input id="guessQuestion" type="text" placeholder="Ex: Combien font 7 x 8 ?" />
-        </div>
-        <div class="row btn-row" style="flex-wrap:wrap;">
-          <div class="field" style="min-width:140px;">
-            <label>Réponse correcte</label>
-            <input id="guessCorrect" type="number" value="56" />
-          </div>
-          <div class="field" style="min-width:140px;">
-            <label>Min</label>
-            <input id="guessMin" type="number" value="0" />
-          </div>
-          <div class="field" style="min-width:140px;">
-            <label>Max</label>
-            <input id="guessMax" type="number" value="100" />
-          </div>
-          <div class="field" style="min-width:160px; max-width:220px;">
-            <label>Durée de réponse (secondes)</label>
-            <input id="guessSeconds" type="number" min="1" max="60" value="10" />
-            <div class="duration-presets" data-target="guessSeconds">
-              <button type="button" data-seconds="8">8s</button><button type="button" data-seconds="12">12s</button><button type="button" data-seconds="20">20s</button>
-            </div>
-          </div>
-          <div class="field" style="min-width:160px; max-width:220px;">
-            <label>Questions dans la série</label>
-            <input id="guessSeriesCount" type="number" min="1" max="50" value="10" />
-          </div>
-        </div>
-        <div class="row btn-row">
-          <button id="guessStartBtn" class="btn-green">Poser (3-2-1)</button>
-          <button id="guessRandomAskBtn" class="btn-cyan">Question aléatoire</button>
-          <button id="guessSeriesBtn" class="btn-cyan">Lancer une série</button>
-        </div>
-        <div id="guessInfo" class="row hint"></div>
-
-        <div class="field">
-          <label>Répartition des réponses</label>
-          <div id="guessChart" class="chart"></div>
-          <div id="guessScale" class="chart-scale"><span>Min</span><span>Max</span></div>
-        </div>
-      </section>
-
-      <!-- Réponse libre -->
-      <section id="freePanel" class="card" style="display:none;" data-game-panel="free">
-        <h2>Réponse libre</h2>
-
-        <div class="card soft">
-          <h3 style="margin-top:0;">Banque</h3>
-          <div class="row btn-row">
-            <span class="hint">Banque chargée automatiquement.</span>
-            <span id="freeLoadedInfo" class="hint"></span>
-          </div>
-        </div>
-
-        <div class="field">
-          <label>Question</label>
-          <input id="freeQuestion" type="text" placeholder="Ex: Écris une définition drôle de 'internet'." />
-        </div>
-        <div class="row btn-row" style="flex-wrap:wrap;">
-          <div class="field" style="min-width:170px; max-width:240px;">
-            <label>Durée de réponse (secondes)</label>
-            <input id="freeSeconds" type="hidden" value="10" />
-            <div class="duration-presets choice-only" data-target="freeSeconds" data-choice-group="free-seconds">
-              <button type="button" class="is-selected" data-seconds="10">10s</button><button type="button" data-seconds="15">15s</button><button type="button" data-seconds="20">20s</button>
-            </div>
-          </div>
-          <div class="field" style="min-width:160px; max-width:220px;">
-            <label>Questions dans la série</label>
-            <input id="freeSeriesCount" type="hidden" value="20" />
-            <div class="duration-presets choice-only" data-target="freeSeriesCount" data-choice-group="free-count">
-              <button type="button" data-count="2">2 questions</button><button type="button" class="is-selected" data-count="20">20 questions</button><button type="button" data-count="30">30 questions</button>
-            </div>
-          </div>
-        </div>
-        <div class="row btn-row">
-          <button id="freeStartBtn" class="btn-green">Poser (3-2-1)</button>
-          <button id="freeRandomAskBtn" class="btn-cyan">Question aléatoire</button>
-          <button id="freeSeriesBtn" class="btn-cyan">Lancer une série</button>
-        </div>
-        <div id="freeInfo" class="row hint"></div>
-      </section>
-
-      <section id="mostPanel" class="card" style="display:none;" data-game-panel="most">
-        <h2>Qui est le plus...</h2>
-
-        <div class="card soft">
-          <h3 style="margin-top:0;">Banque de questions</h3>
-          <div class="row btn-row">
-            <button id="mostLoadBtn">Charger banque</button>
-            <span id="mostLoadedInfo" class="hint"></span>
-          </div>
-        </div>
-
-        <div class="field">
-          <label>Question</label>
-          <input id="mostQuestion" type="text" placeholder="Ex: Qui est le plus susceptible d'arriver en retard ?" />
-        </div>
-        <div class="field" style="max-width:220px;">
-          <label>Durée (secondes)</label>
-          <input id="mostSeconds" type="number" min="5" max="30" value="15" />
-        </div>
-        <div class="row btn-row">
-          <button id="mostStartBtn" class="btn-green">Lancer vote (15s)</button>
-          <button id="mostRandomAskBtn" class="btn-cyan">Question aléatoire</button>
-        </div>
-        <div id="mostInfo" class="row hint"></div>
-      </section>
-    </section>
-
-    <!-- Droite: Scores -->
-    <aside class="tv-right card">
-      <section class="tv-scores">
-        <h2>Scores</h2>
-        <ul id="players" class="score-list"></ul>
-        <div class="score-footer">
-          <button id="resetScoresBtn" class="btn-cyan">Réinitialiser scores</button>
-        </div>
-      </section>
-    </aside>
-  </main>
-
-  <!-- Overlays globaux -->
-  <div id="overlay" class="overlay" onclick="this.classList.remove('show')">
-    <div>
-      <div class="label">Gagnant</div>
-      <div id="winnerName" class="winner"></div>
-      <div class="hint">(cliquer pour fermer)</div>
-    </div>
+<!doctype html><html lang="fr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>TV</title><link rel="stylesheet" href="/style.css"/></head><body class="tv-stage">
+<main class="tv-main">
+  <div id="bigPhase" class="tv-phase"></div>
+  <div id="bigQuestion" class="tv-question"></div>
+  <div id="bigRule" class="tv-rule"></div>
+  <div class="tv-progress">
+    <div><strong>✅ Ont répondu :</strong> <span id="answeredList">-</span></div>
+    <div><strong>⏳ En attente :</strong> <span id="pendingList">-</span></div>
   </div>
+  <div id="playersBar" class="tv-players-bar"></div>
+</main>
+<script src="/socket.io/socket.io.js"></script><script>
+const socket=io({transports:['websocket','polling']});
+const bigPhase=document.getElementById('bigPhase');
+const bigQuestion=document.getElementById('bigQuestion');
+const bigRule=document.getElementById('bigRule');
+const playersBar=document.getElementById('playersBar');
+const answeredList=document.getElementById('answeredList');
+const pendingList=document.getElementById('pendingList');
 
+function phaseText(phase){
+  const map={LOBBY:'Lobby',INTRO:'Introduction',GAME_A:'Jeu A',RESULTS_A:'Résultats A',GAME_B:'Jeu B',RESULTS_B:'Résultats B',GAME_C:'Jeu C',RESULTS_C:'Résultats C',GAME_D:'Jeu D',RESULTS_D:'Résultats D',GAME_E:'Jeu E',RESULTS_E:'Résultats E',COUNCIL:'Conseil',COUNCIL_RESULT:'Résultat Conseil',FINAL:'Finale',FINAL_RESULT:'Résultat Finale',END:'Fin'};
+  return map[phase]||phase;
+}
+function rulesFor(s){
+  if(s.phase==='GAME_A') return 'Vote pour un joueur. 1 vote unique.';
+  return 'POC centré sur le Jeu A';
+}
+function questionFor(s){
+  const g=s.gameState||{};
+  if(s.phase==='GAME_A') return g.question||'Question en cours...';
+  return 'Le Ftour des Aventuriers';
+}
 
-  <div id="resultsOverlay" class="overlay">
-    <div style="max-width:760px; width:92vw; text-align:left;">
-      <div class="label" style="text-align:center;">Résultats</div>
-      <div id="resultsTitle" class="question" style="font-size:1.4rem; text-align:center; margin-bottom:.8rem;"></div>
-      <div id="resultsBody" class="quiz-result-grid"></div>
-      <div style="text-align:center; margin-top:1rem;"><button id="resultsCloseBtn">Fermer</button></div>
-    </div>
-  </div>
-
-  <div id="countdown" class="overlay">
-    <div>
-      <div class="label">Début dans</div>
-      <div id="countNum" class="winner"></div>
-    </div>
-  </div>
-
-  <div id="quizQOverlay" class="overlay">
-    <button id="overlayStopBtn" class="overlay-stop" title="Arrêter l'auto‑play">✖</button>
-    <div>
-      <div class="label">Question</div>
-      <div id="quizQText" class="question"></div>
-      <div id="quizTimer" class="hint" style="margin-top:.8rem;"></div>
-      <div id="freeHint" class="hint" style="margin-top: .6rem; display:none;">Écrivez votre réponse sur votre téléphone</div>
-    </div>
-  </div>
-
-  <div id="freeResultsOverlay" class="overlay">
-    <div style="max-width: 1000px; width: 92vw; text-align: left;">
-      <div class="label" style="text-align:center;">Réponses</div>
-      <div id="freeResultsList" class="free-list"></div>
-      <div style="text-align:center; margin-top: 1rem;">
-        <button id="freeResultsCloseBtn">Fermer</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="freeReviewOverlay" class="overlay">
-    <div style="max-width: 1100px; width: 94vw;">
-      <div class="row" style="justify-content:space-between; align-items:center;">
-        <div class="label">Correction — <span id="freeReviewPosition">1/20</span></div>
-        <div class="btn-row">
-          <button id="freeReviewPrevBtn">Précédent</button>
-          <button id="freeReviewNextBtn" class="btn-green">Suivant</button>
-          <button id="freeReviewCloseBtn" class="btn-cyan">Terminer</button>
-        </div>
-      </div>
-      <div class="question" id="freeReviewQuestion" style="margin-top:.5rem; text-align:center;"></div>
-      <div id="freeReviewList" class="free-list" style="margin-top:.8rem;"></div>
-    </div>
-  </div>
-
-  <div id="mostPodiumOverlay" class="overlay">
-    <div style="max-width: 980px; width: 92vw;">
-      <div class="label">Résultat — Qui est le plus</div>
-      <div id="mostResultQuestion" class="question" style="font-size:2rem; margin-bottom:1rem;"></div>
-      <div id="mostPodium" class="most-podium"></div>
-      <div id="mostVotesMeta" class="hint" style="margin-top:1rem;"></div>
-      <div style="margin-top:1rem;"><button id="mostResultCloseBtn">Fermer</button></div>
-    </div>
-  </div>
-
-  <div id="gameBuilderOverlay" class="overlay">
-    <div class="game-builder-card">
-      <div class="row" style="justify-content:space-between; align-items:center;">
-        <div class="label">Créer une GAME</div>
-        <button id="gameBuilderCloseBtn" type="button">Fermer</button>
-      </div>
-      <p class="hint" style="margin-top:.2rem;">À gauche, sélectionne les jeux. À droite, personnalise les réglages.</p>
-
-      <div class="game-builder-layout">
-        <section class="game-builder-column">
-          <h3 class="game-builder-title">Jeux disponibles</h3>
-          <div id="gameBuilderList" class="game-builder-list"></div>
-        </section>
-
-        <section class="game-builder-column">
-          <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:.35rem;">
-            <h3 class="game-builder-title" style="margin:0;">Ma GAME</h3>
-            <div id="gameBuilderSummary" class="hint">Aucun jeu sélectionné</div>
-          </div>
-          <div id="gameBuilderConfig" class="game-builder-config"></div>
-        </section>
-      </div>
-
-      <div class="row btn-row" style="justify-content:flex-end; margin-top:.7rem;">
-        <button id="gameBuilderStartBtn" class="btn-green" type="button">Lancer la GAME</button>
-      </div>
-    </div>
-  </div>
-
-
-  <div id="gameShowStage" class="game-show-stage" aria-hidden="true">
-    <div class="game-show-host">🎤</div>
-    <div class="game-show-title">PLATEAU TV</div>
-    <div id="gameShowMode" class="game-show-mode">Mode GAME</div>
-    <div id="gameShowPhase" class="game-show-phase">Préparation</div>
-    <div id="gameShowQuestion" class="game-show-question">La question apparaîtra ici</div>
-  </div>
-
-
-  <div id="gameFlowTimer" class="game-flow-timer" aria-hidden="true" style="display:none;">
-    <div class="game-flow-timer-head">
-      <span id="gameFlowTimerPhase">Question</span>
-      <span id="gameFlowTimerValue">10s</span>
-    </div>
-    <div class="game-flow-timer-track">
-      <div id="gameFlowTimerFill" class="game-flow-timer-fill"></div>
-    </div>
-  </div>
-
-  <script src="/socket.io/socket.io.js"></script>
-  <script type="module" src="/js/tv-core.js"></script>
-  <script type="module" src="/js/tv-buzzer.js"></script>
-  <script type="module" src="/js/tv-quiz.js"></script>
-  <script type="module" src="/js/tv-guess.js"></script>
-  <script type="module" src="/js/tv-free.js"></script>
-  <script type="module" src="/js/tv-most.js"></script>
-  <script type="module" src="/js/tv-game.js"></script>
-</body>
-</html>
+socket.on('game:state',(s)=>{
+  bigPhase.textContent=phaseText(s.phase);
+  bigQuestion.textContent=questionFor(s);
+  bigRule.textContent=rulesFor(s);
+  const nameById = Object.fromEntries((s.rankings||[]).map((p)=>[p.playerId,p.name]));
+  const answered=(s.gameAProgress?.answeredPlayerIds||[]).map((id)=>nameById[id]||id);
+  const pending=(s.gameAProgress?.pendingPlayerIds||[]).map((id)=>nameById[id]||id);
+  answeredList.textContent = answered.length ? answered.join(', ') : '-';
+  pendingList.textContent = pending.length ? pending.join(', ') : '-';
+  playersBar.innerHTML=(s.rankings||[]).map(p=>`<span>${p.name}</span>`).join('');
+});
+</script></body></html>
