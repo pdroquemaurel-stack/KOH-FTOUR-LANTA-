@@ -1,12 +1,12 @@
 <!doctype html><html lang="fr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Aventurier</title><link rel="stylesheet" href="/style.css"/></head><body class="join-page">
-<div class="container"><h1 class="title">🌴 Aventurier</h1>
+<div class="container"><h1 id="mobileTitle" class="title">🌴 Aventurier</h1>
 <section id="form" class="panel"><div class="grid"><input id="name" placeholder="Nom" maxlength="24"/><input id="animal" placeholder="Animal fétiche" maxlength="24"/><button id="join">Rejoindre</button></div></section>
-<section id="play" class="panel mt" style="display:none"><h2 id="me"></h2><p id="phase"></p><div id="action"></div><p id="ack" class="small"></p><div id="scoreBadge" class="score-badge score-bottom">0 pt</div></section></div>
+<section id="play" class="panel mt" style="display:none"><p id="phase"></p><div id="action"></div><p id="ack" class="small"></p><div id="scoreBadge" class="score-badge score-bottom">0 pt</div></section></div>
 <script src="/socket.io/socket.io.js"></script><script>
 const socket=io({transports:['websocket','polling']}); const KEY='kla_singleton_player_v2'; let me=null,st=null;
 let archeryAnim={running:false,axis:'H',horizontal:0,vertical:0,dir:1,raf:null};
 const byId=id=>document.getElementById(id); const save=v=>localStorage.setItem(KEY,JSON.stringify(v)); const load=()=>{try{return JSON.parse(localStorage.getItem(KEY)||'null')}catch{return null}};
-function joined(p){me=p;byId('form').style.display='none';byId('play').style.display='';byId('me').textContent=`${p.name} (${p.animal})`}
+function joined(p){me=p;byId('form').style.display='none';byId('play').style.display='';byId('mobileTitle').textContent=`🌴 ${p.name}`}
 function send(type,payload){
   socket.emit('game:action',{type,payload},(r)=>{
     const ack=byId('ack');
@@ -51,7 +51,7 @@ function renderArrowsBottom(arrows){
   return `<div class='archery-arrows-bottom'>${'<img src="/Visuels/archery_arrow_intact.png" alt="flèche intacte"/>'.repeat(intact)}${'<img src="/Visuels/archery_arrow_broken.png" alt="flèche cassée"/>'.repeat(broken)}</div>`;
 }
 
-function renderAction(){ if(!st||!me)return; const phase=st.phase; byId('phase').textContent=`Phase: ${phase}`; const a=byId('action'); const gs=st.gameState||{}; document.body.classList.toggle('archery-active', phase==='GAME_F');
+function renderAction(){ if(!st||!me)return; const phase=st.phase; byId('phase').textContent=phase==='GAME_F'?'':`Phase: ${phase}`; const a=byId('action'); const gs=st.gameState||{}; document.body.classList.toggle('archery-active', phase==='GAME_F');
 if(st.resultsShown){a.innerHTML='<p>Résultats affichés: réponses fermées.</p>';return;}
 if(phase==='GAME_A'){a.innerHTML=`<select id='t'>${playerList()}</select><button id='s'>Voter</button>`;byId('s').onclick=()=>send('A_VOTE',{targetPlayerId:byId('t').value});}
 else if(phase==='GAME_B'){a.innerHTML=`<input id='ans' placeholder='Ta réponse'/><button id='s'>Envoyer</button>`;byId('s').onclick=()=>send('B_ANSWER',{answer:byId('ans').value});}

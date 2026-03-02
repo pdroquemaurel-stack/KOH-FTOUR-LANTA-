@@ -45,24 +45,30 @@ button.secondary { background: linear-gradient(180deg, #6c7c66, #42503f); color:
     url('/Visuels/tv_background_main_1920x1080.png') center / cover no-repeat fixed;
 }
 .tv-layout {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
   display: grid;
-  grid-template-columns: 1fr minmax(260px, 22vw);
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) clamp(240px, 22vw, 420px);
+  gap: clamp(10px, 1.3vw, 22px);
   padding: 2vh 2vw;
+  align-items: stretch;
+  overflow: hidden;
 }
 .tv-main {
+  min-width: 0;
+  min-height: 0;
   display: grid;
-  grid-template-rows: auto 1fr auto auto;
+  grid-template-rows: minmax(0, 1fr) auto auto auto;
+  gap: clamp(8px, 1.2vh, 16px);
+  overflow: hidden;
 }
-.tv-phase { text-align: center; font-size: clamp(1.4rem,3.2vw,2.6rem); font-weight: 900; color: #ffd89d; text-shadow: 0 3px 18px rgba(0,0,0,.65); }
-.tv-question { align-self: center; text-align: center; font-size: clamp(2.2rem,6.2vw,6rem); line-height: 1.08; font-weight: 900; padding: 2vh 2vw; text-shadow: 0 5px 26px rgba(0,0,0,.82); }
-.tv-rule { text-align: center; font-size: clamp(1.2rem,2.8vw,2.4rem); font-weight: 700; color: #ffe4bd; text-shadow: 0 3px 18px rgba(0,0,0,.8); margin-bottom: 1vh; }
-.tv-players-bar { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; padding: 10px; border-radius: 12px; background: rgba(8,10,9,.58); }
+.tv-question { align-self: center; text-align: center; font-size: clamp(1.3rem,3.6vw,3.8rem); line-height: 1.05; font-weight: 900; padding: 1vh .8vw; text-shadow: 0 5px 26px rgba(0,0,0,.82); overflow: auto; }
+.tv-rule { text-align: center; font-size: clamp(.9rem,1.9vw,1.45rem); font-weight: 700; color: #ffe4bd; text-shadow: 0 3px 18px rgba(0,0,0,.8); margin-bottom: .2vh; max-height: 9vh; overflow: auto; }
+.tv-players-bar { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; padding: 8px; border-radius: 12px; background: rgba(8,10,9,.58); max-height: 14vh; overflow: auto; }
 .tv-players-bar span { padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,216,157,.45); font-size: clamp(.9rem,1.6vw,1.3rem); }
 .tv-players-bar span.answered { color: var(--answered); border-color: rgba(99,210,140,.8); }
-.tv-progress { display: grid; gap: 6px; margin: 0 auto 8px; width: min(1200px, 92vw); background: rgba(8,10,9,.45); border-radius: 10px; padding: 8px 12px; font-size: clamp(1rem,1.8vw,1.4rem); }
-.tv-scoreboard { background: rgba(8,10,9,.62); border: 1px solid rgba(255,216,157,.45); border-radius: 12px; padding: 12px; }
+.tv-progress { display: grid; gap: 5px; margin: 0 auto 4px; width: min(1200px, 92vw); background: rgba(8,10,9,.45); border-radius: 10px; padding: 8px 10px; font-size: clamp(.82rem,1.1vw,1rem); max-height: 13vh; overflow: auto; }
+.tv-scoreboard { position: sticky; top: 2vh; max-height: calc(100dvh - 4vh); overflow: auto; background: rgba(8,10,9,.62); border: 1px solid rgba(255,216,157,.45); border-radius: 12px; padding: 10px; }
 .tv-scoreboard h3 { margin: 4px 0 12px; font-size: clamp(1.4rem,2.4vw,2rem); }
 .tv-scoreboard ol { margin: 0; padding-left: 24px; display: grid; gap: 10px; font-size: clamp(1.2rem,2vw,1.9rem); }
 .tv-scoreboard li { display:flex; justify-content:space-between; gap:10px; align-items:center; }
@@ -75,7 +81,7 @@ button.danger { background: linear-gradient(180deg, #f07a7a, #b03232); color: #f
 .score-badge { background: rgba(8,10,9,.92); border: 1px solid rgba(255,216,157,.6); border-radius: 999px; padding: 10px 20px; font-weight: 900; font-size: clamp(1.6rem, 7vw, 2.8rem); text-align: center; }
 .plus { color: #63d28c; font-weight: 800; }
 .minus { color: #ff7d7d; font-weight: 800; }
-.tv-results { margin: 8px auto; width: min(1200px, 92vw); background: rgba(8,10,9,.6); border-radius: 10px; padding: 8px 12px; }
+.tv-results { margin: 4px auto; width: min(1200px, 92vw); max-height: 30vh; overflow: auto; background: rgba(8,10,9,.6); border-radius: 10px; padding: 8px 12px; }
 .tv-results h3 { margin: 8px 0; color: #ffd89d; }
 .tv-results ol, .tv-results ul { margin: 0; padding-left: 20px; display:grid; gap:4px; }
 
@@ -83,7 +89,7 @@ button.danger { background: linear-gradient(180deg, #f07a7a, #b03232); color: #f
 .error-msg { color: #ff7d7d; font-weight: 800; }
 #play.panel { padding-bottom: 88px; }
 
-.archery-target { position: relative; width: min(520px, 70vw); aspect-ratio: 1/1; margin: 10px auto; }
+.archery-target { position: relative; width: min(520px, 70vw); aspect-ratio: 1/1; margin: 10px auto; display:grid; place-items:center; }
 .archery-target img { width: 100%; height: 100%; object-fit: contain; }
 .archery-shot { position: absolute; width: 14px; height: 14px; border-radius: 50%; border: 2px solid #111; transform: translate(-50%, -50%); box-shadow: 0 0 8px rgba(0,0,0,.6); }
 
@@ -101,10 +107,82 @@ button.danger { background: linear-gradient(180deg, #f07a7a, #b03232); color: #f
 
 
 body.join-page.archery-active { overflow: hidden; }
-body.join-page.archery-active .container { min-height: 100vh; display:grid; align-content:center; padding: 10px; }
-body.join-page.archery-active #play.panel { height: calc(100vh - 20px); overflow: hidden; display:grid; grid-template-rows: auto auto 1fr auto auto; }
-body.join-page.archery-active #action { display:grid; align-content:center; justify-items:center; }
-.archery-mobile-wrap { width: 100%; max-width: 560px; }
-.archery-mobile-target { margin: 0 auto; }
+body.join-page.archery-active .container {
+  height: 100vh;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  padding: 8px;
+  gap: 6px;
+}
+body.join-page.archery-active .title {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(1.2rem, 5.8vw, 2rem);
+}
+body.join-page.archery-active #play.panel {
+  margin-top: 0;
+  padding: 10px;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 8px;
+  overflow: hidden;
+}
+body.join-page.archery-active #phase { margin: 0; min-height: 0; }
+body.join-page.archery-active #action {
+  min-height: 0;
+  display:grid;
+  align-content: center;
+  justify-items:center;
+}
+.archery-mobile-wrap { width: 100%; max-width: 560px; max-height: 100%; gap: 8px; }
+.archery-mobile-target { margin: 0 auto; width: min(74vw, 52vh, 460px); }
+body.join-page.archery-active #fireBtn { font-size: clamp(1rem, 4vw, 1.15rem); padding: 10px; }
+body.join-page.archery-active .archery-arrows-bottom img { width: clamp(30px, 8vw, 42px); height: clamp(30px, 8vw, 42px); }
 .archery-shot-wrap { position:absolute; transform: translate(-50%, -50%); display:flex; align-items:center; gap:4px; }
 .archery-shot-name { font-size: 10px; font-weight: 700; text-shadow: 0 1px 4px rgba(0,0,0,.8); white-space: nowrap; }
+
+
+@media (max-width: 1100px) {
+  .tv-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(210px, 32vw);
+    gap: 10px;
+  }
+}
+
+@media (max-width: 760px) {
+  .tv-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(170px, 36vw);
+    gap: 8px;
+    padding: 8px;
+  }
+  .tv-progress,
+  .tv-results { width: 100%; }
+  .tv-scoreboard ol { padding-left: 16px; font-size: clamp(.85rem, 2.4vw, 1.05rem); }
+  .tv-scoreboard li strong { font-size: clamp(.95rem, 2.8vw, 1.15rem); }
+}
+
+@media (max-height: 820px) {
+  .tv-question { font-size: clamp(1.1rem, 2.9vw, 2.6rem); }
+  .tv-rule { font-size: clamp(.8rem, 1.45vw, 1rem); max-height: 8vh; }
+  .tv-progress { font-size: clamp(.75rem, 1vw, .92rem); max-height: 12vh; }
+  .tv-players-bar { max-height: 12vh; }
+  .tv-results { max-height: 26vh; }
+}
+
+@media (max-height: 680px) {
+  .tv-layout { gap: 8px; padding: 8px; }
+  .tv-question { font-size: clamp(1rem, 2.4vw, 2.1rem); }
+  .tv-rule { max-height: 7vh; }
+  .tv-results { max-height: 22vh; }
+  .tv-scoreboard h3 { margin-bottom: 8px; }
+  .tv-scoreboard ol { gap: 6px; }
+}
+
+@media (max-height: 700px) {
+  body.join-page.archery-active .archery-mobile-target { width: min(64vw, 38vh, 340px); }
+  body.join-page.archery-active .archery-mobile-wrap { gap: 6px; }
+  body.join-page.archery-active .small { font-size: .82rem; }
+  body.join-page.archery-active #fireBtn { padding: 8px; }
+}

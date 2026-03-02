@@ -1,7 +1,6 @@
 <!doctype html><html lang="fr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>TV</title><link rel="stylesheet" href="/style.css"/></head><body class="tv-stage">
 <main class="tv-layout">
   <section class="tv-main">
-    <div id="bigPhase" class="tv-phase"></div>
     <div id="bigQuestion" class="tv-question"></div>
     <div id="bigRule" class="tv-rule"></div>
     <div id="resultsBlock" class="tv-results" style="display:none"></div>
@@ -19,7 +18,6 @@
 <audio id="bgMusic" src="/audio/Koh-Lanta Main Theme (Aventuri)  EPIC VERSION.mp3" loop autoplay></audio>
 <script src="/socket.io/socket.io.js"></script><script>
 const socket=io({transports:['websocket','polling']});
-const bigPhase=document.getElementById('bigPhase');
 const bigQuestion=document.getElementById('bigQuestion');
 const bigRule=document.getElementById('bigRule');
 const playersBar=document.getElementById('playersBar');
@@ -36,10 +34,6 @@ function reportAudioError(reason){
   socket.emit('tv:audio_error',{reason:String(reason||'AUDIO_PLAY_BLOCKED')});
 }
 
-function phaseText(phase){
-  const map={LOBBY:'Lobby',INTRO:'Introduction',GAME_A:'Jeu A',RESULTS_A:'Résultats A',GAME_B:'Jeu B',RESULTS_B:'Résultats B',GAME_C:'Jeu C',RESULTS_C:'Résultats C',GAME_D:'Jeu D',RESULTS_D:'Résultats D',GAME_E:'Jeu E',RESULTS_E:'Résultats E',COUNCIL:'Conseil',COUNCIL_RESULT:'Résultat Conseil',FINAL:'Finale',GAME_F:'Jeu F',FINAL_RESULT:'Résultat Finale',END:'Fin'};
-  return map[phase]||phase;
-}
 function rulesFor(s){
   const map={GAME_A:'Vote pour un joueur. 1 vote unique.',GAME_B:'Trouve la bonne réponse le plus vite possible.',GAME_C:'Devine le juste prix le plus proche.',GAME_D:'Donne tes 3 meilleures réponses.',GAME_E:'Choisis PARTAGER ou TRAHIR.',GAME_F:'Vise verticalement puis horizontalement.',COUNCIL:'Vote contre un joueur.',FINAL:'Parie puis réponds à la question finale.'};
   if(map[s.phase]) return s.resultsShown?'Résultats affichés. Réponses fermées.':map[s.phase];
@@ -93,7 +87,6 @@ function renderResults(s){
 }
 
 socket.on('game:state',(s)=>{
-  bigPhase.textContent=phaseText(s.phase);
   bigQuestion.textContent=questionFor(s);
   bigRule.textContent=rulesFor(s);
   bgMusic.muted=!!s.tvMuted;
