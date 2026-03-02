@@ -54,29 +54,28 @@ button.secondary { background: linear-gradient(180deg, #6c7c66, #42503f); color:
 .character-track {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  align-items: stretch; /* cards same height */
+  gap: 0;
+  align-items: center;
+  justify-items: center;
+  overflow: visible;
 }
 
 /* --- Card: fixed size (same colored frame for all) --- */
 .character-card {
-  width: 150px;              /* keep or use clamp(...) */
-  height: 190px;             /* FIXED -> identical frame for all */
+  width: 150px;
+  height: 190px;
   border-radius: 18px;
   border: 3px solid var(--character-color, #ffb347);
-  background: rgba(0, 0, 0, 0.45);
+  background: #000;
   color: var(--bone);
 
   padding: 10px 8px;
   box-sizing: border-box;
 
   display: grid;
-  grid-template-rows: 1fr auto; /* image zone + label zone */
-  gap: 8px;
-  justify-items: center;
-  align-items: center;
+  place-items: center;
 
-  transition: transform 0.15s ease, opacity 0.15s ease;
+  transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
 /* Image zone wrapper (requires <div class="character-thumb"> around img) */
@@ -96,28 +95,29 @@ button.secondary { background: linear-gradient(180deg, #6c7c66, #42503f); color:
   max-width: 110px;          /* optional visual cap */
 }
 
-/* Label: avoid resizing cards when names are long */
-.character-card span {
-  font-size: 0.78rem;
-  text-align: center;
-  line-height: 1.15;
-  max-width: 100%;
-  overflow: hidden;
-
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
 /* Existing focus/selection effects */
 .character-card:not(.center) {
   opacity: 0.72;
-  transform: scale(0.92);
+  transform: scale(0.86);
+  z-index: 1;
 }
 
 .character-card.center {
   opacity: 1;
-  transform: scale(1);
+  transform: scale(1.06);
+  z-index: 3;
+}
+
+.character-track .character-card:first-child {
+  transform: translateX(26px) scale(0.86);
+}
+
+.character-track .character-card:last-child {
+  transform: translateX(-26px) scale(0.86);
+}
+
+.character-track .character-card.center {
+  transform: scale(1.06);
 }
 
 .character-card.selected {
