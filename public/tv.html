@@ -1,10 +1,11 @@
 <!doctype html><html lang="fr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>TV</title><link rel="stylesheet" href="/style.css"/></head><body class="tv-stage">
 <main class="tv-layout">
   <section class="tv-main">
+    <div id="questionSeriesInfo" class="tv-series-info"></div>
     <div id="bigQuestion" class="tv-question"></div>
+    <div id="questionTimer" class="tv-question-timer" style="display:none">⏱️ <span id="questionTimerValue">--</span>s</div>
     <div id="bigRule" class="tv-rule"></div>
     <div id="resultsBlock" class="tv-results" style="display:none"></div>
-    <div id="playersBar" class="tv-players-bar"></div>
   </section>
   <aside class="tv-scoreboard">
     <h3>Classement</h3>
@@ -15,41 +16,89 @@
 <script src="/socket.io/socket.io.js"></script><script>
 const socket=io({transports:['websocket','polling']});
 const bigQuestion=document.getElementById('bigQuestion');
+const questionSeriesInfo=document.getElementById('questionSeriesInfo');
 const bigRule=document.getElementById('bigRule');
-const playersBar=document.getElementById('playersBar');
 const scoreList=document.getElementById('scoreList');
 const resultsBlock=document.getElementById('resultsBlock');
+const timerEl=document.getElementById('questionTimer');
+const timerValueEl=document.getElementById('questionTimerValue');
 const bgMusic=document.getElementById('bgMusic');
 bgMusic.volume=0.5;
 let audioErrorSent=false;
+let timerInterval=null;
+let lastTickSecond=null;
+const beepCtx = (window.AudioContext||window.webkitAudioContext) ? new (window.AudioContext||window.webkitAudioContext)() : null;
 function reportAudioError(reason){
   if(audioErrorSent) return;
   audioErrorSent=true;
   socket.emit('tv:audio_error',{reason:String(reason||'AUDIO_PLAY_BLOCKED')});
 }
+function beep(){
+  if(!beepCtx) return;
+  if(beepCtx.state==='suspended') beepCtx.resume().catch(()=>{});
+  const o=beepCtx.createOscillator();
+  const g=beepCtx.createGain();
+  o.frequency.value=880;
+  o.type='square';
+  g.gain.value=0.05;
+  o.connect(g); g.connect(beepCtx.destination);
+  const t=beepCtx.currentTime;
+  o.start(t); o.stop(t+0.08);
+}
+function stopCountdown(){
+  if(timerInterval){ clearInterval(timerInterval); timerInterval=null; }
+  timerEl.style.display='none';
+  timerValueEl.textContent='--';
+  lastTickSecond=null;
+}
+function startCountdown(state){
+  stopCountdown();
+  if(state.phase!=='GAME_B' || state.gameState?.stage!=='QUESTION' || !state.phaseTimer?.endsAt){ return; }
+  timerEl.style.display='';
+  const tick=()=>{
+    const remain=Math.max(0, Math.ceil((Number(state.phaseTimer.endsAt)-Date.now())/1000));
+    timerValueEl.textContent=remain;
+    if(remain<=5 && remain>0 && remain!==lastTickSecond){ beep(); lastTickSecond=remain; }
+    if(remain<=0) stopCountdown();
+  };
+  tick();
+  timerInterval=setInterval(tick,200);
+}
 
 function rulesFor(s){
-  const map={GAME_A:'Vote pour un joueur. 1 vote unique.',GAME_B:'Trouve la bonne réponse le plus vite possible.',GAME_C:'Devine le juste prix le plus proche.',GAME_D:'Donne tes 3 meilleures réponses.',GAME_E:'Choisis PARTAGER ou TRAHIR.',GAME_F:'Vise verticalement puis horizontalement.',COUNCIL:'Vote contre un joueur.',FINAL:'Parie puis réponds à la question finale.'};
-  if(map[s.phase]) return map[s.phase];
-  return '';
+  const map={GAME_A:'Vote pour un joueur. 1 vote unique.',GAME_B:'1 bonne réponse par question. Répondez librement.',GAME_C:'Le juste prix: donne ton estimation en dirham.',GAME_D:'Donne tes 3 meilleures réponses.',GAME_E:'Choisis PARTAGER ou TRAHIR.',GAME_F:'Vise verticalement puis horizontalement.',COUNCIL:'Vote contre un joueur.',FINAL:'Parie puis réponds à la question finale.'};
+  return map[s.phase]||'';
 }
 function questionFor(s){
   const g=s.gameState||{};
   if(s.phase==='GAME_A') return g.question||'Question en cours...';
-  if(s.phase==='GAME_B') return g.prompt||'Question en cours...';
+  if(s.phase==='GAME_B'){
+    if(g.stage==='QUESTION') return g.questions?.[g.currentIndex]?.prompt||'Question en cours...';
+    if(g.stage==='REVIEW') return g.questions?.[g.reviewIndex]?.prompt||'Correction en cours...';
+    return 'Question en cours...';
+  }
   if(s.phase==='GAME_C') return g.item?`Prix à estimer : ${g.item}`:'Question en cours...';
   if(s.phase==='GAME_D') return g.theme?`Thème : ${g.theme}`:'Question en cours...';
   if(s.phase==='GAME_F') return 'Vise bien ou fais toi des amis';
   if(s.phase==='FINAL') return g.question||'Question finale';
   return '';
 }
+
+function questionSeriesText(s){
+  if(s.phase!=='GAME_B') return '';
+  const g=s.gameState||{};
+  const total=(g.questions||[]).length||0;
+  if(!total) return '';
+  const idx=g.stage==='REVIEW' ? Number(g.reviewIndex||0) : Number(g.currentIndex||0);
+  return `Question ${Math.max(1,idx+1)} / ${total}`;
+}
+
 function arrowsIcons(p){
   const total=2;
   const left=Math.max(0,Math.min(total,Number(p.arrows??2)));
   const broken=Math.max(0,total-left);
   return `<span class='tv-arrows'>${'<img src="/Visuels/archery_arrow_intact.png" alt="flèche intacte"/>' .repeat(left)}${'<img src="/Visuels/archery_arrow_broken.png" alt="flèche cassée"/>' .repeat(broken)}</span>`;
 }
-
 function renderResults(s){
   const r=s.gameState?.results;
   if(!s.resultsShown||!r){resultsBlock.style.display='none'; resultsBlock.classList.remove('archery-results'); return;}
@@ -83,8 +132,21 @@ function renderResults(s){
     const noShot=(r.noShot||[]).length?`<p>❌ Sans tir (perdent 1 flèche): ${(r.noShot||[]).map((pid)=>nameById[pid]||pid).join(', ')}</p>`:'';
     resultsBlock.classList.add('archery-results');
     resultsBlock.innerHTML=`<h3>Résultats Tir à l'arc</h3><div class='archery-target'><img src='/Visuels/archery_target_board.png' alt='Cible'/>${shots}</div><p>🎯 Plus proche (participants): <strong>${closest}</strong></p><p>💥 Plus éloigné (participants): <strong>${farthest}</strong> (perd 1 flèche)</p>${noShot}${breakInfo}${winner}`;
+  } else if(r.game==='B' && r.mode==='manual_review') {
+    const idx=Number(s.gameState?.reviewIndex||0);
+    const current=r.questions?.[idx]||r.questions?.[0]||{question:'',expected:'',answers:[]};
+    const cards=(current.answers||[]).map((it)=>`<article class='tv-free-answer-card ${it.validated?'validated':''}'><div class='tv-free-answer-name'>${it.name}</div><div class='tv-free-answer-text'>${it.answer||'—'}</div></article>`).join('');
+    resultsBlock.innerHTML=`<h3>Jeu B — Correction ${idx+1}/${(r.questions||[]).length||1}</h3><p class='small'>Bonne réponse: <strong>${current.expected||'—'}</strong></p><div class='tv-free-answer-grid'>${cards||'<p>Aucune réponse</p>'}</div>`;
+  } else if(r.game==='C') {
+    const vals=(r.answers||[]).map(x=>Number(x.value)).filter((n)=>!Number.isNaN(n));
+    const real=Number(r.real||0);
+    const min=Math.min(real,...vals);
+    const max=Math.max(real,...vals);
+    const span=Math.max(1,max-min);
+    const dots=(r.answers||[]).map((x)=>{const pct=((Number(x.value)-min)/span)*100; const name=nameById[x.pid]||x.pid; return `<div class='price-dot' style='left:${pct}%;'><span>●</span><small>${name} (${x.value})</small></div>`;}).join('');
+    const realPct=((real-min)/span)*100;
+    resultsBlock.innerHTML=`<h3>Le juste prix — Frise des estimations</h3><div class='price-line-wrap'><div class='price-line'></div>${dots}<div class='price-real' style='left:${realPct}%'><span>◉</span><small>Prix réel: ${real} DH</small></div></div><p class='small'>Plage affichée: ${Math.round(min)} DH → ${Math.round(max)} DH</p>`;
   } else {
-    resultsBlock.classList.remove('archery-results');
     const pretty=JSON.stringify(r,(k,v)=>nameById[v]||v,2);
     resultsBlock.innerHTML=`<h3>Résultats ${r.game||''}</h3><pre>${pretty}</pre>`;
   }
@@ -93,14 +155,14 @@ function renderResults(s){
 
 socket.on('game:state',(s)=>{
   bigQuestion.textContent=questionFor(s);
+  questionSeriesInfo.textContent=questionSeriesText(s);
   bigRule.textContent=rulesFor(s);
   bgMusic.muted=!!s.tvMuted;
   if(!bgMusic.muted){ bgMusic.play().catch((e)=>reportAudioError(e?.message||'AUDIO_PLAY_BLOCKED')); }
+  startCountdown(s);
   renderResults(s);
-  const nameById = Object.fromEntries((s.rankings||[]).map((p)=>[p.playerId,p.name]));
   const answeredIds=(s.gameProgress?.answeredPlayerIds||s.gameAProgress?.answeredPlayerIds||[]);
-  playersBar.innerHTML=(s.rankings||[]).map(p=>`<span class='${answeredIds.includes(p.playerId)?'answered':''}'>${p.name}</span>`).join('');
-  scoreList.innerHTML=(s.rankings||[]).map(p=>`<li><span class='${answeredIds.includes(p.playerId)?'answered':''}'>${p.name} ${arrowsIcons(p)}</span><strong>${p.score}</strong></li>`).join('');
+  scoreList.innerHTML=(s.rankings||[]).map(p=>`<li><span class='${answeredIds.includes(p.playerId)?'answered':''}'><img class='tv-player-avatar' src='/${encodeURI(String(p.animal||''))}' alt='avatar'/>${p.name} ${arrowsIcons(p)}</span><strong>${p.score}</strong></li>`).join('');
 });
 bgMusic.addEventListener('error',()=>reportAudioError('AUDIO_ELEMENT_ERROR'));
 </script></body></html>

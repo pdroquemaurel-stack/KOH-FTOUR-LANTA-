@@ -40,6 +40,7 @@
     const socket = io({ transports: ['websocket', 'polling'] });
     const KEY = 'kla_singleton_player_v2';
     let me = null, st = null;
+    let answerUiState = { key: '', values: {}, validated: false };
 
     const CHARACTERS = [
       { file: 'Visuels/joueur/Lion rouge sang.png', color: '#8A0303' },
@@ -109,13 +110,14 @@
       byId('mobileTitle').textContent = `🌴 ${p.name}`;
     }
 
-    function send(type, payload) {
+    function send(type, payload, done) {
       socket.emit('game:action', { type, payload }, (r) => {
         const ack = byId('ack');
-        if (r?.ok) { ack.classList.remove('error-msg'); ack.textContent = '✅ Réponse envoyée'; return; }
+        if (r?.ok) { ack.classList.remove('error-msg'); ack.textContent = '✅ Réponse envoyée'; done&&done(true); return; }
         if (r?.error === 'NO_SELF_VOTE') { ack.classList.add('error-msg'); ack.textContent = "t'es idiot ou tu veux perdre des points ?"; return; }
         if (r?.error === 'NO_ARROWS_LEFT') { ack.classList.add('error-msg'); ack.textContent = "❌ Tu n'as plus de flèche, tu ne peux plus jouer."; return; }
         ack.classList.add('error-msg'); ack.textContent = `❌ ${r?.error || 'Erreur'}`;
+        done&&done(false);
       });
     }
 
@@ -160,6 +162,11 @@
       archeryAnim.raf = requestAnimationFrame(tick);
     }
 
+
+    function resetAnswerState(newKey) {
+      if (answerUiState.key !== newKey) answerUiState = { key: newKey, values: {}, validated: false };
+    }
+
     function renderArrowsBottom(arrows) {
       const total = 2;
       const intact = Math.max(0, Math.min(total, Number(arrows ?? 2)));
@@ -174,11 +181,37 @@
       const a = byId('action');
       const gs = st.gameState || {};
       document.body.classList.toggle('archery-active', phase === 'GAME_F');
+      if (!['GAME_B','GAME_C','GAME_D','FINAL'].includes(phase)) answerUiState = { key: '', values: {}, validated: false };
       if (st.resultsShown) { a.innerHTML = '<p>Résultats affichés: réponses fermées.</p>'; return; }
       if (phase === 'GAME_A') { a.innerHTML = `<select id='t'>${playerList()}</select><button id='s'>Voter</button>`; byId('s').onclick = () => send('A_VOTE', { targetPlayerId: byId('t').value }); }
-      else if (phase === 'GAME_B') { a.innerHTML = `<input id='ans' placeholder='Ta réponse'/><button id='s'>Envoyer</button>`; byId('s').onclick = () => send('B_ANSWER', { answer: byId('ans').value }); }
-      else if (phase === 'GAME_C') { a.innerHTML = `<input id='g' type='number' placeholder='Ton prix'/><button id='s'>Valider</button>`; byId('s').onclick = () => send('C_GUESS', { value: Number(byId('g').value) }); }
-      else if (phase === 'GAME_D') { a.innerHTML = `<input id='a1' placeholder='Réponse 1'/><input id='a2' placeholder='Réponse 2'/><input id='a3' placeholder='Réponse 3'/><button id='s'>Valider Top3</button>`; byId('s').onclick = () => send('D_TOP3', { answers: [byId('a1').value, byId('a2').value, byId('a3').value] }); }
+      else if (phase === 'GAME_B') {
+        const k = `B|${gs.currentIndex ?? -1}|${gs.questions?.[gs.currentIndex]?.prompt || ''}`;
+        resetAnswerState(k);
+        const v = answerUiState.values.ans || '';
+        a.innerHTML = `<input id='ans' class='${answerUiState.validated ? 'answer-validated' : ''}' placeholder='Ta réponse' value="${String(v).replace(/"/g,'&quot;')}"/><button id='s'>Valider</button><p class='small'>${answerUiState.validated ? '✅ Réponse validée' : ''}</p>`;
+        byId('ans')?.addEventListener('input', (ev) => { answerUiState.values.ans = ev.target.value; answerUiState.validated = false; renderAction(); });
+        byId('s').onclick = () => send('B_ANSWER', { answer: byId('ans').value }, (ok) => { if (ok) { answerUiState.values.ans = byId('ans').value; answerUiState.validated = true; renderAction(); } });
+      }
+      else if (phase === 'GAME_C') {
+        const k = `C|${gs.item || ''}|${gs.realPrice || 0}`;
+        resetAnswerState(k);
+        const current = Number(answerUiState.values.g ?? gs.realPrice ?? 100);
+        const min = 1;
+        const max = Math.max(500, (gs.realPrice || 100) * 3);
+        a.innerHTML = `<label class='small'>Ton prix en dirham après négo et énervement</label><input id='gSlider' type='range' min='${min}' max='${max}' value='${current}'/><input id='g' class='${answerUiState.validated ? 'answer-validated' : ''}' type='number' min='${min}' max='${max}' value='${current}'/><button id='s'>Valider</button><p class='small'>${answerUiState.validated ? '✅ Réponse validée' : ''}</p>`;
+        const sync = (val)=>{ answerUiState.values.g = Number(val||0); answerUiState.validated=false; const g=byId('g'); const sl=byId('gSlider'); if(g) g.value=String(answerUiState.values.g); if(sl) sl.value=String(answerUiState.values.g); };
+        byId('gSlider')?.addEventListener('input',(ev)=>sync(ev.target.value));
+        byId('g')?.addEventListener('input',(ev)=>sync(ev.target.value));
+        byId('s').onclick = () => send('C_GUESS', { value: Number(byId('g').value) }, (ok) => { if (ok) { answerUiState.values.g = Number(byId('g').value); answerUiState.validated = true; renderAction(); } });
+      }
+      else if (phase === 'GAME_D') {
+        const k = `D|${gs.theme || ''}`;
+        resetAnswerState(k);
+        const a1 = answerUiState.values.a1 || '', a2 = answerUiState.values.a2 || '', a3 = answerUiState.values.a3 || '';
+        a.innerHTML = `<input id='a1' class='${answerUiState.validated ? 'answer-validated' : ''}' placeholder='Réponse 1' value="${String(a1).replace(/"/g,'&quot;')}"/><input id='a2' class='${answerUiState.validated ? 'answer-validated' : ''}' placeholder='Réponse 2' value="${String(a2).replace(/"/g,'&quot;')}"/><input id='a3' class='${answerUiState.validated ? 'answer-validated' : ''}' placeholder='Réponse 3' value="${String(a3).replace(/"/g,'&quot;')}"/><button id='s'>Valider Top3</button><p class='small'>${answerUiState.validated ? '✅ Réponse validée' : ''}</p>`;
+        ['a1','a2','a3'].forEach((id)=>byId(id)?.addEventListener('input',(ev)=>{answerUiState.values[id]=ev.target.value; answerUiState.validated=false;}));
+        byId('s').onclick = () => send('D_TOP3', { answers: [byId('a1').value, byId('a2').value, byId('a3').value] }, (ok) => { if (ok) { answerUiState.values={a1:byId('a1').value,a2:byId('a2').value,a3:byId('a3').value}; answerUiState.validated=true; renderAction(); } });
+      }
       else if (phase === 'GAME_E') { a.innerHTML = `<div class='grid grid-2'><button id='sh'>Partager</button><button id='be' class='danger'>Trahir</button></div>`; byId('sh').onclick = () => send('E_CHOICE', { choice: 'SHARE' }); byId('be').onclick = () => send('E_CHOICE', { choice: 'BETRAY' }); }
       else if (phase === 'GAME_F') {
         const meState = (st.rankings || []).find((p) => p.playerId === me.playerId) || {};
@@ -220,7 +253,7 @@
         };
       }
       else if (phase === 'COUNCIL') { a.innerHTML = `<select id='v'>${playerList()}</select><button id='s'>Voter secret</button>`; byId('s').onclick = () => send('COUNCIL_VOTE', { targetPlayerId: byId('v').value }); }
-      else if (phase === 'FINAL') { const finalist = (gs.finalists || []).includes(me.playerId); if (!finalist) { a.innerHTML = '<p>Tu n\'es pas finaliste.</p>'; return; } a.innerHTML = `<input id='bet' type='number' min='0' max='5' placeholder='Mise 0-5'/><input id='ans' placeholder='Réponse finale'/><button id='s'>Envoyer finale</button>`; byId('s').onclick = () => send('FINAL_BET_ANSWER', { bet: Number(byId('bet').value), answer: byId('ans').value }); }
+      else if (phase === 'FINAL') { const finalist = (gs.finalists || []).includes(me.playerId); if (!finalist) { a.innerHTML = '<p>Tu n\'es pas finaliste.</p>'; return; } const k=`FINAL|${gs.question||''}`; resetAnswerState(k); const bet=answerUiState.values.bet??0; const ans=answerUiState.values.ans||''; a.innerHTML = `<input id='bet' class='${answerUiState.validated ? 'answer-validated' : ''}' type='number' min='0' max='5' placeholder='Mise 0-5' value='${bet}'/><input id='ans' class='${answerUiState.validated ? 'answer-validated' : ''}' placeholder='Réponse finale' value="${String(ans).replace(/"/g,'&quot;')}"/><button id='s'>Valider</button><p class='small'>${answerUiState.validated ? '✅ Réponse validée' : ''}</p>`; byId('bet')?.addEventListener('input',(ev)=>{answerUiState.values.bet=Number(ev.target.value||0);answerUiState.validated=false;}); byId('ans')?.addEventListener('input',(ev)=>{answerUiState.values.ans=ev.target.value;answerUiState.validated=false;}); byId('s').onclick = () => send('FINAL_BET_ANSWER', { bet: Number(byId('bet').value), answer: byId('ans').value }, (ok) => { if (ok) { answerUiState.values={bet:Number(byId('bet').value),ans:byId('ans').value}; answerUiState.validated=true; renderAction(); } }); }
       else { stopArcheryAnim(); a.innerHTML = '<p>En attente de la prochaine épreuve...</p>'; }
     }
 
