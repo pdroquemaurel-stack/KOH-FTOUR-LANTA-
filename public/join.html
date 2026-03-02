@@ -75,18 +75,19 @@
         const c = CHARACTERS[idx];
         const isCenter = offset === 0;
         const selectedClass = c.file === selectedCharacter ? ' selected' : '';
+        const characterLabel = c.file.split('/').pop().replace('.png', '');
         return `
           <button
             type="button"
             class="character-card ${isCenter ? 'center' : ''}${selectedClass}"
             data-index="${idx}"
             style="--character-color:${c.color}"
-            aria-label="Sélectionner ${c.file.replace('.png', '')}"
+            aria-label="Sélectionner ${characterLabel}"
           >
             <div class="character-thumb">
-              <img src="/Visuels/joueur/${encodeURIComponent(c.file)}" alt="${c.file.replace('.png', '')}" />
+              <img src="/${encodeURI(c.file)}" alt="${characterLabel}" />
             </div>
-            <span>${c.file.replace('.png', '')}</span>
+            <span>${characterLabel}</span>
           </button>
         `;
       }).join('');
