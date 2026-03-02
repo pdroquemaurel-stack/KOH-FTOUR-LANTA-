@@ -40,6 +40,7 @@
     const socket = io({ transports: ['websocket', 'polling'] });
     const KEY = 'kla_singleton_player_v2';
     let me = null, st = null;
+    let gameBUiState = { questionKey: '', value: '', validated: false };
 
     const CHARACTERS = [
       { file: 'Visuels/joueur/Lion rouge sang.png', color: '#8A0303' },
@@ -174,9 +175,32 @@
       const a = byId('action');
       const gs = st.gameState || {};
       document.body.classList.toggle('archery-active', phase === 'GAME_F');
+      if (phase !== 'GAME_B') gameBUiState = { questionKey: '', value: '', validated: false };
       if (st.resultsShown) { a.innerHTML = '<p>Résultats affichés: réponses fermées.</p>'; return; }
       if (phase === 'GAME_A') { a.innerHTML = `<select id='t'>${playerList()}</select><button id='s'>Voter</button>`; byId('s').onclick = () => send('A_VOTE', { targetPlayerId: byId('t').value }); }
-      else if (phase === 'GAME_B') { a.innerHTML = `<input id='ans' placeholder='Ta réponse'/><button id='s'>Envoyer</button>`; byId('s').onclick = () => send('B_ANSWER', { answer: byId('ans').value }); }
+      else if (phase === 'GAME_B') {
+        const qKey = `${gs.currentIndex ?? -1}|${gs.questions?.[gs.currentIndex]?.prompt || ''}`;
+        if (gameBUiState.questionKey !== qKey) gameBUiState = { questionKey: qKey, value: '', validated: false };
+        a.innerHTML = `<input id='ans' class='${gameBUiState.validated ? 'answer-validated' : ''}' placeholder='Ta réponse' value="${(gameBUiState.value || '').replace(/"/g,'&quot;')}"/><button id='s'>Envoyer</button><p class='small'>${gameBUiState.validated ? '✅ Réponse validée' : ''}</p>`;
+        const ansEl = byId('ans');
+        ansEl?.addEventListener('input', () => { gameBUiState.value = ansEl.value; gameBUiState.validated = false; ansEl.classList.remove('answer-validated'); });
+        byId('s').onclick = () => {
+          const answer = byId('ans').value;
+          socket.emit('game:action', { type: 'B_ANSWER', payload: { answer } }, (r) => {
+            const ack = byId('ack');
+            if (r?.ok) {
+              gameBUiState.value = answer;
+              gameBUiState.validated = true;
+              ack.classList.remove('error-msg');
+              ack.textContent = '✅ Réponse envoyée';
+              renderAction();
+              return;
+            }
+            ack.classList.add('error-msg');
+            ack.textContent = `❌ ${r?.error || 'Erreur'}`;
+          });
+        };
+      }
       else if (phase === 'GAME_C') { a.innerHTML = `<input id='g' type='number' placeholder='Ton prix'/><button id='s'>Valider</button>`; byId('s').onclick = () => send('C_GUESS', { value: Number(byId('g').value) }); }
       else if (phase === 'GAME_D') { a.innerHTML = `<input id='a1' placeholder='Réponse 1'/><input id='a2' placeholder='Réponse 2'/><input id='a3' placeholder='Réponse 3'/><button id='s'>Valider Top3</button>`; byId('s').onclick = () => send('D_TOP3', { answers: [byId('a1').value, byId('a2').value, byId('a3').value] }); }
       else if (phase === 'GAME_E') { a.innerHTML = `<div class='grid grid-2'><button id='sh'>Partager</button><button id='be' class='danger'>Trahir</button></div>`; byId('sh').onclick = () => send('E_CHOICE', { choice: 'SHARE' }); byId('be').onclick = () => send('E_CHOICE', { choice: 'BETRAY' }); }
