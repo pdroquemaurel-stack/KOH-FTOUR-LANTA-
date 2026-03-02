@@ -31,7 +31,7 @@ function buildGameCatalog() {
   return {
     GAME_A: CONFIG.susceptibleQuestions.map((q, idx) => ({ index: idx, label: String(q || `Question ${idx + 1}`) })),
     GAME_B: [{ index: 0, label: '1 bonne réponse par question' }],
-    GAME_C: CONFIG.price.map((q, idx) => ({ index: idx, label: String(q?.item || `Question ${idx + 1}`) })),
+    GAME_C: CONFIG.price.map((q, idx) => ({ index: idx, label: String(q?.item || `Objet ${idx + 1}`) })),
     GAME_D: CONFIG.top3.map((q, idx) => ({ index: idx, label: String(q?.theme || `Question ${idx + 1}`) })),
     GAME_F: [{ index: 0, label: 'Vise bien ou fais toi des amis' }]
   };
@@ -226,8 +226,11 @@ function initPhaseState(phase, options = {}) {
     advanceGameBQuestion();
   } else if (phase === 'GAME_C') {
     const selectedIndex = Math.max(0, Number(options?.index || 0));
-    const item = CONFIG.price[selectedIndex] || { item: 'Item', price: 100 };
-    SESSION.gameState = { key: 'GAME_C', index: selectedIndex, item: item.item, realPrice: item.price, withoutOver: true, answers: {}, completed: false };
+    const manualItem = String(options?.manualItem || '').trim();
+    const manualPrice = Number(options?.manualPrice);
+    const baseItem = CONFIG.price[selectedIndex] || { item: 'Objet mystère', price: 100 };
+    const item = manualItem ? { item: manualItem, price: Number.isFinite(manualPrice) ? manualPrice : baseItem.price } : baseItem;
+    SESSION.gameState = { key: 'GAME_C', index: selectedIndex, item: item.item, realPrice: Number(item.price) || 0, withoutOver: true, answers: {}, completed: false };
   } else if (phase === 'GAME_D') {
     const selectedIndex = Math.max(0, Number(options?.index || 0));
     const t = CONFIG.top3[selectedIndex] || { theme: 'Thème', answers: [] };
@@ -640,7 +643,9 @@ io.on('connection', (socket) => {
       initPhaseState(game, {
         index: Number(payload?.questionIndex || 0),
         count: Number(payload?.count || 1),
-        seconds: Number(payload?.seconds || 20)
+        seconds: Number(payload?.seconds || 20),
+        manualItem: String(payload?.manualItem || ''),
+        manualPrice: Number(payload?.manualPrice)
       });
     }
     else if (command === 'GAME_B_REVIEW_GOTO') {

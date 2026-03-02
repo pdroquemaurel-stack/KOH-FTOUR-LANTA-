@@ -1,6 +1,7 @@
 <!doctype html><html lang="fr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>TV</title><link rel="stylesheet" href="/style.css"/></head><body class="tv-stage">
 <main class="tv-layout">
   <section class="tv-main">
+    <div id="questionSeriesInfo" class="tv-series-info"></div>
     <div id="bigQuestion" class="tv-question"></div>
     <div id="questionTimer" class="tv-question-timer" style="display:none">⏱️ <span id="questionTimerValue">--</span>s</div>
     <div id="bigRule" class="tv-rule"></div>
@@ -15,6 +16,7 @@
 <script src="/socket.io/socket.io.js"></script><script>
 const socket=io({transports:['websocket','polling']});
 const bigQuestion=document.getElementById('bigQuestion');
+const questionSeriesInfo=document.getElementById('questionSeriesInfo');
 const bigRule=document.getElementById('bigRule');
 const scoreList=document.getElementById('scoreList');
 const resultsBlock=document.getElementById('resultsBlock');
@@ -64,7 +66,7 @@ function startCountdown(state){
 }
 
 function rulesFor(s){
-  const map={GAME_A:'Vote pour un joueur. 1 vote unique.',GAME_B:'1 bonne réponse par question. Répondez librement.',GAME_C:'Devine le juste prix le plus proche.',GAME_D:'Donne tes 3 meilleures réponses.',GAME_E:'Choisis PARTAGER ou TRAHIR.',GAME_F:'Vise verticalement puis horizontalement.',COUNCIL:'Vote contre un joueur.',FINAL:'Parie puis réponds à la question finale.'};
+  const map={GAME_A:'Vote pour un joueur. 1 vote unique.',GAME_B:'1 bonne réponse par question. Répondez librement.',GAME_C:'Le juste prix: donne ton estimation en dirham.',GAME_D:'Donne tes 3 meilleures réponses.',GAME_E:'Choisis PARTAGER ou TRAHIR.',GAME_F:'Vise verticalement puis horizontalement.',COUNCIL:'Vote contre un joueur.',FINAL:'Parie puis réponds à la question finale.'};
   return map[s.phase]||'';
 }
 function questionFor(s){
@@ -81,6 +83,16 @@ function questionFor(s){
   if(s.phase==='FINAL') return g.question||'Question finale';
   return '';
 }
+
+function questionSeriesText(s){
+  if(s.phase!=='GAME_B') return '';
+  const g=s.gameState||{};
+  const total=(g.questions||[]).length||0;
+  if(!total) return '';
+  const idx=g.stage==='REVIEW' ? Number(g.reviewIndex||0) : Number(g.currentIndex||0);
+  return `Question ${Math.max(1,idx+1)} / ${total}`;
+}
+
 function arrowsIcons(p){
   const total=2;
   const left=Math.max(0,Math.min(total,Number(p.arrows??2)));
@@ -125,6 +137,15 @@ function renderResults(s){
     const current=r.questions?.[idx]||r.questions?.[0]||{question:'',expected:'',answers:[]};
     const cards=(current.answers||[]).map((it)=>`<article class='tv-free-answer-card ${it.validated?'validated':''}'><div class='tv-free-answer-name'>${it.name}</div><div class='tv-free-answer-text'>${it.answer||'—'}</div></article>`).join('');
     resultsBlock.innerHTML=`<h3>Jeu B — Correction ${idx+1}/${(r.questions||[]).length||1}</h3><p class='small'>Bonne réponse: <strong>${current.expected||'—'}</strong></p><div class='tv-free-answer-grid'>${cards||'<p>Aucune réponse</p>'}</div>`;
+  } else if(r.game==='C') {
+    const vals=(r.answers||[]).map(x=>Number(x.value)).filter((n)=>!Number.isNaN(n));
+    const real=Number(r.real||0);
+    const min=Math.min(real,...vals);
+    const max=Math.max(real,...vals);
+    const span=Math.max(1,max-min);
+    const dots=(r.answers||[]).map((x)=>{const pct=((Number(x.value)-min)/span)*100; const name=nameById[x.pid]||x.pid; return `<div class='price-dot' style='left:${pct}%;'><span>●</span><small>${name} (${x.value})</small></div>`;}).join('');
+    const realPct=((real-min)/span)*100;
+    resultsBlock.innerHTML=`<h3>Le juste prix — Frise des estimations</h3><div class='price-line-wrap'><div class='price-line'></div>${dots}<div class='price-real' style='left:${realPct}%'><span>◉</span><small>Prix réel: ${real} DH</small></div></div><p class='small'>Plage affichée: ${Math.round(min)} DH → ${Math.round(max)} DH</p>`;
   } else {
     const pretty=JSON.stringify(r,(k,v)=>nameById[v]||v,2);
     resultsBlock.innerHTML=`<h3>Résultats ${r.game||''}</h3><pre>${pretty}</pre>`;
@@ -134,13 +155,14 @@ function renderResults(s){
 
 socket.on('game:state',(s)=>{
   bigQuestion.textContent=questionFor(s);
+  questionSeriesInfo.textContent=questionSeriesText(s);
   bigRule.textContent=rulesFor(s);
   bgMusic.muted=!!s.tvMuted;
   if(!bgMusic.muted){ bgMusic.play().catch((e)=>reportAudioError(e?.message||'AUDIO_PLAY_BLOCKED')); }
   startCountdown(s);
   renderResults(s);
   const answeredIds=(s.gameProgress?.answeredPlayerIds||s.gameAProgress?.answeredPlayerIds||[]);
-  scoreList.innerHTML=(s.rankings||[]).map(p=>`<li><span class='${answeredIds.includes(p.playerId)?'answered':''}'>${p.name} ${arrowsIcons(p)}</span><strong>${p.score}</strong></li>`).join('');
+  scoreList.innerHTML=(s.rankings||[]).map(p=>`<li><span class='${answeredIds.includes(p.playerId)?'answered':''}'><img class='tv-player-avatar' src='/${encodeURI(String(p.animal||''))}' alt='avatar'/>${p.name} ${arrowsIcons(p)}</span><strong>${p.score}</strong></li>`).join('');
 });
 bgMusic.addEventListener('error',()=>reportAudioError('AUDIO_ELEMENT_ERROR'));
 </script></body></html>
