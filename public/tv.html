@@ -76,13 +76,15 @@ function renderResults(s){
       const left=50 + (shot.x/2);
       const top=50 - (shot.y/2);
       const color=colors[shot.pid]||'#fff';
-      return `<span class='archery-shot' style='left:${left}%;top:${top}%;background:${color}' title='${nameById[shot.pid]||shot.pid}'></span>`;
+      const name=nameById[shot.pid]||shot.pid;
+      return `<span class='archery-shot-wrap' style='left:${left}%;top:${top}%;color:${color}'><span class='archery-shot' style='background:${color}' title='${name}'></span><span class='archery-shot-name'>${name}</span></span>`;
     }).join('');
     const closest=nameById[r.closest]||r.closest||'-';
     const farthest=nameById[r.farthest]||r.farthest||'-';
     const breakInfo=r.breakChoice?`<p>${nameById[r.breakChoice.by]||r.breakChoice.by} casse une flèche de ${nameById[r.breakChoice.target]||r.breakChoice.target}</p>`:'';
     const winner=r.winner?`<p><strong>🏆 Vainqueur: ${nameById[r.winner]||r.winner}</strong></p>`:'';
-    resultsBlock.innerHTML=`<h3>Résultats Tir à l'arc</h3><div class='archery-target'><img src='/Visuels/archery_target_board.png' alt='Cible'/>${shots}</div><p>🎯 Plus proche: <strong>${closest}</strong></p><p>💥 Plus éloigné: <strong>${farthest}</strong> (perd 1 flèche)</p>${breakInfo}${winner}`;
+    const noShot=(r.noShot||[]).length?`<p>❌ Sans tir (perdent 1 flèche): ${(r.noShot||[]).map((pid)=>nameById[pid]||pid).join(', ')}</p>`:'';
+    resultsBlock.innerHTML=`<h3>Résultats Tir à l'arc</h3><div class='archery-target'><img src='/Visuels/archery_target_board.png' alt='Cible'/>${shots}</div><p>🎯 Plus proche: <strong>${closest}</strong></p><p>💥 Plus éloigné: <strong>${farthest}</strong> (perd 1 flèche)</p>${noShot}${breakInfo}${winner}`;
   } else {
     const pretty=JSON.stringify(r,(k,v)=>nameById[v]||v,2);
     resultsBlock.innerHTML=`<h3>Résultats ${r.game||''}</h3><pre>${pretty}</pre>`;

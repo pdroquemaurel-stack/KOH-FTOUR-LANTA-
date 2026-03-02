@@ -12,6 +12,7 @@ function send(type,payload){
     const ack=byId('ack');
     if(r?.ok){ ack.classList.remove('error-msg'); ack.textContent='✅ Réponse envoyée'; return; }
     if(r?.error==='NO_SELF_VOTE'){ ack.classList.add('error-msg'); ack.textContent="t'es idiot ou tu veux perdre des points ?"; return; }
+    if(r?.error==='NO_ARROWS_LEFT'){ ack.classList.add('error-msg'); ack.textContent="❌ Tu n'as plus de flèche, tu ne peux plus jouer."; return; }
     ack.classList.add('error-msg'); ack.textContent=`❌ ${r?.error||'Erreur'}`;
   });
 }
@@ -50,7 +51,7 @@ function renderArrowsBottom(arrows){
   return `<div class='archery-arrows-bottom'>${'<img src="/Visuels/archery_arrow_intact.png" alt="flèche intacte"/>'.repeat(intact)}${'<img src="/Visuels/archery_arrow_broken.png" alt="flèche cassée"/>'.repeat(broken)}</div>`;
 }
 
-function renderAction(){ if(!st||!me)return; const phase=st.phase; byId('phase').textContent=`Phase: ${phase}`; const a=byId('action'); const gs=st.gameState||{};
+function renderAction(){ if(!st||!me)return; const phase=st.phase; byId('phase').textContent=`Phase: ${phase}`; const a=byId('action'); const gs=st.gameState||{}; document.body.classList.toggle('archery-active', phase==='GAME_F');
 if(st.resultsShown){a.innerHTML='<p>Résultats affichés: réponses fermées.</p>';return;}
 if(phase==='GAME_A'){a.innerHTML=`<select id='t'>${playerList()}</select><button id='s'>Voter</button>`;byId('s').onclick=()=>send('A_VOTE',{targetPlayerId:byId('t').value});}
 else if(phase==='GAME_B'){a.innerHTML=`<input id='ans' placeholder='Ta réponse'/><button id='s'>Envoyer</button>`;byId('s').onclick=()=>send('B_ANSWER',{answer:byId('ans').value});}
@@ -60,6 +61,7 @@ else if(phase==='GAME_E'){a.innerHTML=`<div class='grid grid-2'><button id='sh'>
 else if(phase==='GAME_F'){
   const meState=(st.rankings||[]).find((p)=>p.playerId===me.playerId)||{};
   const shot=gs.shots?.[me.playerId]||{};
+  if((meState.arrows??2)<=0){ stopArcheryAnim(); a.innerHTML=`<p class='error-msg'>Tu n'as plus de flèche, tu ne peux plus jouer.</p>${renderArrowsBottom(meState.arrows)}`; return; }
   const alive=(st.rankings||[]).filter((p)=>(p.arrows??2)>0 && !p.eliminated);
   if(gs.stage==='BREAK_SELECT'){
     stopArcheryAnim();
@@ -112,5 +114,5 @@ else { stopArcheryAnim(); a.innerHTML='<p>En attente de la prochaine épreuve...
 byId('join').onclick=()=>{const s=load();socket.emit('room:join',{playerId:s?.playerId,reconnectToken:s?.reconnectToken,name:byId('name').value||s?.name,animal:byId('animal').value||s?.animal},(r)=>{if(!r?.ok)return alert(r?.error||'Impossible');save({playerId:r.player.playerId,reconnectToken:r.player.reconnectToken,name:r.player.name,animal:r.player.animal});joined(r.player);renderAction();});};
 const s=load();if(s?.playerId&&s?.reconnectToken){socket.emit('room:join',s,(r)=>{if(r?.ok){joined(r.player);}})}
 socket.on('game:state',(s0)=>{st=s0;updateScore();renderAction();});
-socket.on('game:reset',()=>{stopArcheryAnim();localStorage.removeItem(KEY);location.reload();});
+socket.on('game:reset',()=>{stopArcheryAnim();document.body.classList.remove('archery-active');localStorage.removeItem(KEY);location.reload();});
 </script></body></html>

@@ -42,7 +42,7 @@ button.secondary { background: linear-gradient(180deg, #6c7c66, #42503f); color:
 .tv-stage {
   background:
     linear-gradient(rgba(0,0,0,.42), rgba(0,0,0,.56)),
-    url('/Visuels/tv_background_main_1920x1080.png') center / cover no-repeat fixed;
+    url('/Visuels/1920x1080.png') center / cover no-repeat fixed;
 }
 .tv-layout {
   min-height: 100vh;
@@ -98,3 +98,13 @@ button.danger { background: linear-gradient(180deg, #f07a7a, #b03232); color: #f
 .archery-arrows-bottom { display:flex; justify-content:center; gap:14px; margin-top:8px; }
 .archery-arrows-bottom img { width:42px; height:42px; object-fit:contain; }
 #fireBtn { max-width: 320px; font-size: 1.2rem; padding: 12px; }
+
+
+body.join-page.archery-active { overflow: hidden; }
+body.join-page.archery-active .container { min-height: 100vh; display:grid; align-content:center; padding: 10px; }
+body.join-page.archery-active #play.panel { height: calc(100vh - 20px); overflow: hidden; display:grid; grid-template-rows: auto auto 1fr auto auto; }
+body.join-page.archery-active #action { display:grid; align-content:center; justify-items:center; }
+.archery-mobile-wrap { width: 100%; max-width: 560px; }
+.archery-mobile-target { margin: 0 auto; }
+.archery-shot-wrap { position:absolute; transform: translate(-50%, -50%); display:flex; align-items:center; gap:4px; }
+.archery-shot-name { font-size: 10px; font-weight: 700; text-shadow: 0 1px 4px rgba(0,0,0,.8); white-space: nowrap; }

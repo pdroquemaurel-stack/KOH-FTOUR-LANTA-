@@ -269,6 +269,11 @@ function showResultsCurrentPhase() {
   else if (SESSION.phase === 'COUNCIL') resolveCouncil();
   else if (SESSION.phase === 'FINAL') resolveFinal();
   else return;
+  if (SESSION.phase === 'GAME_F' && SESSION.gameState?.stage === 'BREAK_SELECT') {
+    SESSION.answerLocked = false;
+    SESSION.resultsShown = true;
+    return;
+  }
   SESSION.answerLocked = true;
   SESSION.resultsShown = true;
 }
@@ -374,27 +379,44 @@ function resolveGameF() {
     const p = SESSION.players.get(pid); if (!p) return false; ensurePlayerArrows(p); return p.arrows > 0;
   });
   const shots = SESSION.gameState.shots || {};
-  const entries = contenders.map((pid) => {
+  const firedEntries = [];
+  const noShot = [];
+  contenders.forEach((pid) => {
     const shot = shots[pid] || {};
+    if (typeof shot.horizontal !== 'number' || typeof shot.vertical !== 'number') {
+      noShot.push(pid);
+      const p = SESSION.players.get(pid);
+      if (p) { ensurePlayerArrows(p); p.arrows = Math.max(0, p.arrows - 1); }
+      return;
+    }
     const x = Math.max(-100, Math.min(100, Number(shot.horizontal || 0)));
     const y = Math.max(-100, Math.min(100, Number(shot.vertical || 0)));
     const distance = Math.sqrt((x * x) + (y * y));
-    return { pid, x, y, distance };
+    firedEntries.push({ pid, x, y, distance });
   });
-  if (!entries.length) return;
-  entries.sort((a, b) => a.distance - b.distance);
-  const closest = entries[0]?.pid || null;
-  const farthest = entries[entries.length - 1]?.pid || null;
+  if (!firedEntries.length) {
+    const alive = activePlayers().filter((pl) => { ensurePlayerArrows(pl); return pl.arrows > 0; });
+    const winner = alive.length === 1 ? alive[0].playerId : null;
+    const payloadNoShot = { game: 'F', stage: 'AIM', shots: [], closest: null, farthest: null, noShot, winner, playerColors: SESSION.gameState.playerColors || {} };
+    SESSION.gameState.stage = 'AIM';
+    SESSION.gameState.results = payloadNoShot;
+    if (!winner) SESSION.gameState.shots = {};
+    publishResults(payloadNoShot);
+    return;
+  }
+  firedEntries.sort((a, b) => a.distance - b.distance);
+  const closest = firedEntries[0]?.pid || null;
+  const farthest = firedEntries[firedEntries.length - 1]?.pid || null;
   if (farthest && SESSION.players.get(farthest)) {
     ensurePlayerArrows(SESSION.players.get(farthest));
     SESSION.players.get(farthest).arrows = Math.max(0, SESSION.players.get(farthest).arrows - 1);
   }
-  const payload = { game: 'F', stage: 'BREAK_SELECT', shots: entries, closest, farthest, playerColors: SESSION.gameState.playerColors || {} };
+  const payload = { game: 'F', stage: 'BREAK_SELECT', shots: firedEntries, closest, farthest, noShot, playerColors: SESSION.gameState.playerColors || {} };
   SESSION.gameState.stage = 'BREAK_SELECT';
   SESSION.gameState.results = payload;
   SESSION.gameState.closest = closest;
   SESSION.gameState.farthest = farthest;
-  SESSION.history.push({ at: nowIso(), game: 'F', closest, farthest, shots: entries });
+  SESSION.history.push({ at: nowIso(), game: 'F', closest, farthest, noShot, shots: firedEntries });
   publishResults(payload);
 }
 
@@ -520,6 +542,13 @@ io.on('connection', (socket) => {
       setPhase(game);
       initPhaseState(game, { index: Number(payload?.questionIndex || 0) });
     }
+    else if (command === 'RESTORE_ARROW') {
+      const pid = String(payload?.playerId || '');
+      const p = SESSION.players.get(pid);
+      if (!p) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
+      ensurePlayerArrows(p);
+      p.arrows = Math.min(2, p.arrows + 1);
+    }
     else if (command === 'UPDATE_SCORE') {
       const pid = String(payload?.playerId || '');
       const p = SESSION.players.get(pid);
@@ -594,16 +623,22 @@ io.on('connection', (socket) => {
       if (SESSION.gameState.choices[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
       SESSION.gameState.choices[pid] = payload?.choice === 'BETRAY' ? 'BETRAY' : 'SHARE';
     } else if (SESSION.phase === 'GAME_F' && type === 'F_AIM_VERTICAL') {
+      ensurePlayerArrows(p);
+      if (p.arrows <= 0) return ack?.({ ok: false, error: 'NO_ARROWS_LEFT' });
       const value = Number(payload?.value);
       if (Number.isNaN(value)) return ack?.({ ok: false, error: 'INVALID_VALUE' });
       SESSION.gameState.shots[pid] = SESSION.gameState.shots[pid] || {};
       SESSION.gameState.shots[pid].vertical = Math.max(-100, Math.min(100, value));
     } else if (SESSION.phase === 'GAME_F' && type === 'F_AIM_HORIZONTAL') {
+      ensurePlayerArrows(p);
+      if (p.arrows <= 0) return ack?.({ ok: false, error: 'NO_ARROWS_LEFT' });
       const value = Number(payload?.value);
       if (Number.isNaN(value)) return ack?.({ ok: false, error: 'INVALID_VALUE' });
       SESSION.gameState.shots[pid] = SESSION.gameState.shots[pid] || {};
       SESSION.gameState.shots[pid].horizontal = Math.max(-100, Math.min(100, value));
     } else if (SESSION.phase === 'GAME_F' && type === 'F_BREAK_TARGET') {
+      ensurePlayerArrows(p);
+      if (p.arrows <= 0) return ack?.({ ok: false, error: 'NO_ARROWS_LEFT' });
       if (SESSION.gameState.stage !== 'BREAK_SELECT') return ack?.({ ok: false, error: 'NOT_IN_BREAK_STAGE' });
       if (pid !== SESSION.gameState.closest) return ack?.({ ok: false, error: 'NOT_BREAKER' });
       const target = String(payload?.targetPlayerId || '');
@@ -630,8 +665,8 @@ io.on('connection', (socket) => {
         SESSION.gameState.shots = {};
         SESSION.gameState.stage = 'AIM';
       }
-      SESSION.resultsShown = !!winner;
-      SESSION.answerLocked = !!winner;
+      SESSION.resultsShown = false;
+      SESSION.answerLocked = false;
     } else if (SESSION.phase === 'COUNCIL' && type === 'COUNCIL_VOTE') {
       if (SESSION.gameState.votes[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
       const target = payload?.targetPlayerId;

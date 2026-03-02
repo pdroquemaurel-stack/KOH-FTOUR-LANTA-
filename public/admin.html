@@ -33,6 +33,7 @@ const socket=io({transports:['websocket','polling']});let state=null;const byId=
 const GAME_LABELS={GAME_A:'Jeu A — Susceptible de...',GAME_B:'Jeu B',GAME_C:'Jeu C',GAME_D:'Jeu D',GAME_F:'Jeu F — Vise bien ou fais toi des amis'};
 function cmd(command,payload,cb){socket.emit('admin:command',{command,payload},cb);}
 function scoreControls(p){ return `<div class='score-ctl'><button data-score='-1' data-p='${p.playerId}' class='secondary'>-1</button><strong>${p.score}</strong><button data-score='1' data-p='${p.playerId}'>+1</button></div>`; }
+function arrowControls(p){ const arrows=Math.max(0,Math.min(2,Number(p.arrows??2))); return `<button class='secondary' data-restore-arrow='${p.playerId}'>🏹 ${arrows}/2 (+1)</button>`; }
 function fmtImpact(v){ if(v>0) return `<span class='plus'>+${v}</span>`; if(v<0) return `<span class='minus'>${v}</span>`; return '0'; }
 function fillGamePicker(s){
   const gp=byId('gamePicker'); const catalog=s.gameCatalog||{};
@@ -62,12 +63,13 @@ function render(s){
   state=s; byId('phase').textContent=s.phase; byId('toggleTvMute').textContent=s.tvMuted?'TV: Démuter':'TV: Muter';
   fillGamePicker(s); fillQuestionPicker(s);
   const roster=byId('roster'); roster.innerHTML='';
-  s.rankings.forEach((p)=>{ const li=document.createElement('li'); li.innerHTML=`<div>#${p.rank} <strong>${p.name}</strong> <span class='small'>(${p.animal})</span> ${p.eliminated?'🪦':''} <span class='small'>🏹 ${p.arrows ?? 2}</span></div>${scoreControls(p)}`; roster.appendChild(li); });
+  s.rankings.forEach((p)=>{ const li=document.createElement('li'); li.innerHTML=`<div>#${p.rank} <strong>${p.name}</strong> <span class='small'>(${p.animal})</span> ${p.eliminated?'🪦':''}</div><div class='grid'>${arrowControls(p)}${scoreControls(p)}</div>`; roster.appendChild(li); });
   const audioErr=byId('tvAudioError');
   if(s.lastTvAudioError){ audioErr.style.display=''; audioErr.textContent=`⚠️ Audio TV: ${s.lastTvAudioError.reason} (${new Date(s.lastTvAudioError.at).toLocaleTimeString()})`; }
   else { audioErr.style.display='none'; audioErr.textContent=''; }
   renderResults(s);
   roster.querySelectorAll('[data-score]').forEach((b)=>b.onclick=()=>cmd('UPDATE_SCORE',{playerId:b.dataset.p,delta:Number(b.dataset.score)}));
+  roster.querySelectorAll('[data-restore-arrow]').forEach((b)=>b.onclick=()=>cmd('RESTORE_ARROW',{playerId:b.dataset.restoreArrow}));
 }
 
 byId('gamePicker').onchange=()=>fillQuestionPicker(state||{});
