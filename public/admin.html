@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin • Koh Lanta</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1 class="title">🛡️ Console Admin</h1>
+    <section id="auth" class="panel">
+      <input id="pwd" type="password" placeholder="Mot de passe Admin" />
+      <button id="login" class="mt">Connexion</button>
+    </section>
+
+    <section id="dash" class="panel mt" style="display:none">
+      <div class="small">Session unique : GLOBAL</div>
+      <div class="flex mt">
+        <button id="lockBtn" class="secondary">Verrouiller</button>
+        <button id="resetBtn" class="danger">Reset session</button>
+        <a href="/tv" target="_blank" style="width:100%"><button>Ouvrir l'écran TV</button></a>
+      </div>
+      <div class="grid grid-2 mt">
+        <button class="tv" data-s="LOBBY">TV Lobby</button>
+        <button class="tv secondary" data-s="WAITING">TV Attente</button>
+        <button class="tv secondary" data-s="PLACEHOLDER">TV Placeholder</button>
+      </div>
+      <h3 class="mt">Aventuriers</h3>
+      <ul id="roster" class="roster"></ul>
+    </section>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io({ transports: ['websocket','polling'] });
+    let state = null;
+    const byId = (id) => document.getElementById(id);
+
+    function render(s) {
+      state = s;
+      byId('lockBtn').textContent = s.locked ? 'Déverrouiller' : 'Verrouiller';
+      const roster = byId('roster');
+      roster.innerHTML = '';
+      s.players.forEach((p) => {
+        const li = document.createElement('li');
+        li.innerHTML = `<div><strong>${p.name}</strong> <span class='small'>(${p.animal})</span></div>
+          <div class='flex'><span class='status-chip ${p.status==='CONNECTED'?'connected':'disconnected'}'>${p.status}</span>
+          <button data-k='${p.playerId}' class='danger' style='width:auto;padding:8px 10px'>Kick</button></div>`;
+        roster.appendChild(li);
+      });
+      roster.querySelectorAll('[data-k]').forEach((b) => b.onclick = () => socket.emit('admin:kick', { playerId: b.dataset.k }));
+    }
+
+    byId('login').onclick = () => {
+      socket.emit('admin:auth', { password: byId('pwd').value }, (res) => {
+        if (!res?.ok) return alert('Mot de passe incorrect');
+        byId('auth').style.display = 'none';
+        byId('dash').style.display = '';
+        render(res.state);
+      });
+    };
+
+    byId('lockBtn').onclick = () => socket.emit('admin:lock', { locked: !state.locked });
+    byId('resetBtn').onclick = () => confirm('Reset ?') && socket.emit('admin:reset', {});
+    document.querySelectorAll('.tv').forEach((b) => b.onclick = () => socket.emit('tv:screen', { screen: b.dataset.s }));
+
+    socket.on('tv:state', render);
+  </script>
+</body>
+</html>

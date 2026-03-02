@@ -1,6 +1,6 @@
 {
-  "name": "party-buzzer",
-  "version": "0.2.0",
+  "name": "koh-lanta-ftour-lanta-backbone",
+  "version": "0.3.0",
   "private": true,
   "scripts": {
     "start": "node server.js"
