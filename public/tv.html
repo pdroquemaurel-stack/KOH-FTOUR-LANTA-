@@ -2,21 +2,24 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <title>Party Buzzer 3.0 - TV/Admin</title>
+  <title>Koh Lanta - Le Ftour des Aventuriers - TV/Admin</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body class="tv-body">
   <main class="container tv-layout-3 tight">
     <header class="tv-header card">
-      <div class="tv-header-left"><h1 style="margin:0;">Party Buzzer 3.0</h1></div>
+      <div class="tv-header-left"><h1 style="margin:0;">Koh Lanta — Le Ftour des Aventuriers</h1></div>
       <div class="tv-header-right">
         <div class="mode-switch" id="modeSwitch">
           <label class="mode-pill"><input type="radio" name="mode" value="buzzer" checked /> Buzzer</label>
           <label class="mode-pill"><input type="radio" name="mode" value="quiz" /> Quiz V/F</label>
           <label class="mode-pill"><input type="radio" name="mode" value="guess" /> Devine</label>
           <label class="mode-pill"><input type="radio" name="mode" value="free" /> Réponse libre</label>
-          <label class="mode-pill"><input type="radio" name="mode" value="most" /> Qui est le plus</label>
+          <label class="mode-pill"><input type="radio" name="mode" value="most" /> Ice Breaker</label>
+          <label class="mode-pill"><input type="radio" name="mode" value="top3" /> Top 3</label>
+          <label class="mode-pill"><input type="radio" name="mode" value="duel" /> Duel</label>
+          <label class="mode-pill"><input type="radio" name="mode" value="conseil" /> Conseil</label>
         </div>
       </div>
     </header>
@@ -207,6 +210,41 @@
         <div id="freeInfo" class="row hint"></div>
       </section>
 
+
+      <section id="top3Panel" class="card" style="display:none;" data-game-panel="top3">
+        <h2>Top 3 Maroc</h2>
+        <div class="field"><label>Question</label><input id="top3Question" type="text" placeholder="Ex: Top 3 villes les plus peuplées du Maroc"/></div>
+        <div class="row btn-row" style="flex-wrap:wrap;">
+          <div class="field" style="min-width:180px;"><label>Réponse #1</label><input id="top3Expected1" type="text" /></div>
+          <div class="field" style="min-width:180px;"><label>Réponse #2</label><input id="top3Expected2" type="text" /></div>
+          <div class="field" style="min-width:180px;"><label>Réponse #3</label><input id="top3Expected3" type="text" /></div>
+        </div>
+        <div class="row btn-row"><button id="top3StartBtn" class="btn-green">Lancer</button><button id="top3CloseBtn">Clore</button></div>
+        <div id="top3Info" class="row hint"></div>
+      </section>
+
+      <section id="duelPanel" class="card" style="display:none;" data-game-panel="duel">
+        <h2>Duel Partager / Trahir</h2>
+        <div class="row btn-row"><button id="duelStartRoundBtn" class="btn-green">Lancer round</button><button id="duelCloseRoundBtn">Révéler résultats</button></div>
+        <div id="duelInfo" class="row hint"></div>
+      </section>
+
+      <section id="conseilPanel" class="card" style="display:none;" data-game-panel="conseil">
+        <h2>Conseil des Aventuriers</h2>
+        <div class="row btn-row">
+          <label><input type="radio" name="conseilMode" id="conseilMalus" checked /> Malus</label>
+          <label><input type="radio" name="conseilMode" id="conseilElimination" /> Elimination</label>
+          <input id="conseilMalusValue" type="number" value="4" min="1" max="20" style="max-width:90px;" />
+        </div>
+        <div class="row btn-row">
+          <button id="conseilStartBtn" class="btn-green">Ouvrir les votes</button>
+          <button id="conseilCloseBtn">Clore + dépouiller</button>
+          <input id="conseilImmunityName" type="text" placeholder="Collier d'immunité (pseudo)" />
+          <button id="conseilImmunityBtn" class="btn-cyan">Attribuer immunité</button>
+        </div>
+        <div id="conseilInfo" class="row hint"></div>
+      </section>
+
       <section id="mostPanel" class="card" style="display:none;" data-game-panel="most">
         <h2>Qui est le plus...</h2>
 
@@ -373,6 +411,9 @@
   <script type="module" src="/js/tv-guess.js"></script>
   <script type="module" src="/js/tv-free.js"></script>
   <script type="module" src="/js/tv-most.js"></script>
+  <script type="module" src="/js/tv-top3.js"></script>
+  <script type="module" src="/js/tv-duel.js"></script>
+  <script type="module" src="/js/tv-conseil.js"></script>
   <script type="module" src="/js/tv-game.js"></script>
 </body>
 </html>

@@ -1,0 +1,8 @@
+{
+  "durationMin": 60,
+  "playersTarget": 15,
+  "duelOddPolicy": "djinn_bye",
+  "conseilDefaultMode": "malus",
+  "conseilMalus": 4,
+  "finaleTopN": 3
+}

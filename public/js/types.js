@@ -31,6 +31,15 @@ export const EVENTS = {
   // Qui est le plus
   MOST_QUESTION: 'most:question',
   MOST_RESULT: 'most:result',
+
+  TOP3_QUESTION: 'top3:question',
+  TOP3_RESULT: 'top3:result',
+
+  DUEL_ROUND: 'duel:round',
+  DUEL_RESULT: 'duel:result',
+
+  CONSEIL_START: 'conseil:start',
+  CONSEIL_RESULT: 'conseil:result',
 };
 
 // Normalisation côté TV: événements "génériques" utilisés par les modules

@@ -79,54 +79,44 @@ module.exports = {
     if (!g.open) return;
     g.open = false;
 
-    // Tolérance “exact” = 5% de la réponse (au moins 1)
-    const tol = Math.max(1, Math.floor(Math.abs(g.correct) * 0.05));
-
     const diffs = [];
     g.answers.forEach((val, name) => {
-      diffs.push({ name, val, diff: Math.abs(val - g.correct) });
+      const diff = Math.abs(val - g.correct);
+      const over = val > g.correct;
+      diffs.push({ name, val, diff, over });
     });
 
-    // Gagnants exacts (<= tol) → +2 points
-    const exactWinners = diffs.filter(d => d.diff <= tol).map(d => d.name);
-
-    if (exactWinners.length > 0) {
-      exactWinners.forEach(name => {
-        room.scores.set(name, (room.scores.get(name) || 0) + 2);
-      });
-      io.to(code).emit('guess:result', {
-        correct: g.correct,
-        winners: exactWinners,
-        bestDiff: 0,
-        tol
-      });
-      broadcastPlayers(code);
+    if (diffs.length === 0) {
+      io.to(code).emit('guess:result', { correct: g.correct, winners: [], bestDiff: null, tol: 0, ranking: [] });
       return;
     }
 
-    // Sinon: plus proches → +1 (ex aequo)
-    if (diffs.length > 0) {
-      let best = diffs[0].diff;
-      diffs.forEach(d => { if (d.diff < best) best = d.diff; });
-      const winners = diffs.filter(d => d.diff === best).map(d => d.name);
-      winners.forEach(name => {
-        room.scores.set(name, (room.scores.get(name) || 0) + 1);
-      });
-      io.to(code).emit('guess:result', {
-        correct: g.correct,
-        winners,
-        bestDiff: best,
-        tol
-      });
-      broadcastPlayers(code);
-    } else {
-      // Personne n'a répondu
-      io.to(code).emit('guess:result', {
-        correct: g.correct,
-        winners: [],
-        bestDiff: null,
-        tol
-      });
+    diffs.sort((a, b) => (a.diff - b.diff) || (a.over - b.over) || a.name.localeCompare(b.name));
+
+    const awarded = [];
+    const first = diffs[0];
+    room.scores.set(first.name, (room.scores.get(first.name) || 0) + 3);
+    awarded.push({ name: first.name, points: 3, over: first.over, value: first.val, diff: first.diff });
+
+    if (diffs[1]) {
+      const second = diffs[1];
+      room.scores.set(second.name, (room.scores.get(second.name) || 0) + 1);
+      awarded.push({ name: second.name, points: 1, over: second.over, value: second.val, diff: second.diff });
     }
+
+    diffs.filter((d) => d.over).forEach((d) => {
+      room.scores.set(d.name, Math.max(0, (room.scores.get(d.name) || 0) - 1));
+    });
+
+    io.to(code).emit('guess:result', {
+      correct: g.correct,
+      winners: awarded.map((a) => a.name),
+      bestDiff: diffs[0].diff,
+      tol: 0,
+      ranking: diffs,
+      awarded
+    });
+    broadcastPlayers(code);
   }
+
 };

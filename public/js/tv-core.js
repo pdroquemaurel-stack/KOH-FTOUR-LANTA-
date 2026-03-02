@@ -449,6 +449,39 @@ export const Core = (() => {
     hideProgress();
   });
 
+
+  // Top3
+  socket.on(EVENTS.TOP3_QUESTION, ({ question, seconds }) => {
+    setModeUI('top3');
+    showQuestionOverlay(question, seconds, false);
+    emitGameEvent(GAME_EVENTS.QUESTION, { question, seconds });
+  });
+  socket.on(EVENTS.TOP3_RESULT, (payload) => {
+    hideQuestionOverlay();
+    emitGameEvent(GAME_EVENTS.RESULT, payload);
+    hideProgress();
+  });
+
+  // Duel
+  socket.on(EVENTS.DUEL_ROUND, (payload) => {
+    setModeUI('duel');
+    emitGameEvent(GAME_EVENTS.QUESTION, payload);
+  });
+  socket.on(EVENTS.DUEL_RESULT, (payload) => {
+    emitGameEvent(GAME_EVENTS.RESULT, payload);
+    hideProgress();
+  });
+
+  // Conseil
+  socket.on(EVENTS.CONSEIL_START, () => {
+    setModeUI('conseil');
+    emitGameEvent(GAME_EVENTS.QUESTION, {});
+  });
+  socket.on(EVENTS.CONSEIL_RESULT, (payload) => {
+    emitGameEvent(GAME_EVENTS.RESULT, payload);
+    hideProgress();
+  });
+
   // UI init
   window.addEventListener('DOMContentLoaded', () => {
     const forceNew = isForceNewRoom();

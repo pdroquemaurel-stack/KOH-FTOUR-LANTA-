@@ -63,6 +63,24 @@ module.exports = {
       .map(([name, votes]) => ({ name, votes }))
       .sort((a, b) => (b.votes - a.votes) || a.name.localeCompare(b.name));
 
+    // Scoring "Koh Lanta - Ice breaker"
+    // +1 si le votant a choisi une personne du top des votes
+    // +2 si le joueur fait partie des personnes les plus votées
+    if (ranking.length > 0) {
+      const topVotes = ranking[0].votes;
+      const topTargets = new Set(ranking.filter((r) => r.votes === topVotes).map((r) => r.name));
+
+      g.votes.forEach((target, voter) => {
+        if (topTargets.has(target)) {
+          room.scores.set(voter, (room.scores.get(voter) || 0) + 1);
+        }
+      });
+
+      topTargets.forEach((name) => {
+        room.scores.set(name, (room.scores.get(name) || 0) + 2);
+      });
+    }
+
     io.to(code).emit('most:result', {
       question: g.question,
       ranking,

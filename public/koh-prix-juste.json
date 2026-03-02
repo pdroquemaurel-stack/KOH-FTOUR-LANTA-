@@ -1,0 +1,5 @@
+[
+  {"q":"Prix moyen d'un tajine au restaurant (MAD)","min":20,"max":180,"answer":65},
+  {"q":"Durée d'un épisode TV Koh Lanta (minutes)","min":30,"max":180,"answer":110},
+  {"q":"Distance Rabat-Casablanca (km)","min":20,"max":150,"answer":87}
+]

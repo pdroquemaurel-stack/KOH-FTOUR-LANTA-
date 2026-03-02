@@ -11,13 +11,19 @@ const quizGame = require('./server/games/quiz');
 const guessGame = require('./server/games/guess');
 const freeGame = require('./server/games/free');
 const mostGame = require('./server/games/most');
+const top3Game = require('./server/games/top3');
+const duelGame = require('./server/games/duel');
+const conseilGame = require('./server/games/conseil');
 
 const games = {
   buzzer: buzzerGame,
   quiz: quizGame,
   guess: guessGame,
   free: freeGame,
-  most: mostGame
+  most: mostGame,
+  top3: top3Game,
+  duel: duelGame,
+  conseil: conseilGame
 };
 
 const PORT = process.env.PORT || 3000;
@@ -566,6 +572,104 @@ io.on('connection', (socket) => {
     const r = getRoom(roomCode);
     if (r.gameId !== 'most') return;
     games.most.adminClose(io, r, roomCode);
+    broadcastPlayers(roomCode);
+    r.locked = false;
+    touchRoom(r);
+    broadcastRoomState(roomCode);
+  });
+
+
+
+  // TOP3
+  socket.on('top3:start', ({ question, expected, seconds }) => {
+    if (role !== 'tv' || !roomCode) return;
+    let r = getRoom(roomCode);
+    if (r.gameId !== 'top3') r = ensureGame(roomCode, 'top3');
+    r.locked = true;
+    broadcastRoomState(roomCode);
+    games.top3.adminStart(io, r, roomCode, { question, expected, seconds });
+    touchRoom(r);
+  });
+
+  socket.on('top3:answer', ({ picks }, ack) => {
+    if (!roomCode) { ack && ack({ ok: false }); return; }
+    const r = getRoom(roomCode);
+    if (r.gameId !== 'top3') { ack && ack({ ok: false }); return; }
+    games.top3.playerAnswer(io, r, roomCode, (playerName || 'Joueur'), picks, ack);
+    touchRoom(r);
+  });
+
+  socket.on('top3:close', () => {
+    if (role !== 'tv' || !roomCode) return;
+    const r = getRoom(roomCode);
+    if (r.gameId !== 'top3') return;
+    games.top3.adminClose(io, r, roomCode, broadcastPlayers);
+    r.locked = false;
+    touchRoom(r);
+    broadcastRoomState(roomCode);
+  });
+
+  // DUEL
+  socket.on('duel:start_round', () => {
+    if (role !== 'tv' || !roomCode) return;
+    let r = getRoom(roomCode);
+    if (r.gameId !== 'duel') r = ensureGame(roomCode, 'duel');
+    r.locked = true;
+    broadcastRoomState(roomCode);
+    games.duel.adminStartRound(io, r, roomCode);
+    touchRoom(r);
+  });
+
+  socket.on('duel:choice', ({ choice }, ack) => {
+    if (!roomCode) { ack && ack({ ok: false }); return; }
+    const r = getRoom(roomCode);
+    if (r.gameId !== 'duel') { ack && ack({ ok: false }); return; }
+    games.duel.playerChoice(io, r, roomCode, (playerName || 'Joueur'), choice, ack);
+    touchRoom(r);
+  });
+
+  socket.on('duel:close_round', () => {
+    if (role !== 'tv' || !roomCode) return;
+    const r = getRoom(roomCode);
+    if (r.gameId !== 'duel') return;
+    games.duel.adminCloseRound(io, r, roomCode, broadcastPlayers);
+    r.locked = false;
+    touchRoom(r);
+    broadcastRoomState(roomCode);
+  });
+
+  // CONSEIL
+  socket.on('conseil:start', ({ mode, malus }) => {
+    if (role !== 'tv' || !roomCode) return;
+    let r = getRoom(roomCode);
+    if (r.gameId !== 'conseil') r = ensureGame(roomCode, 'conseil');
+    r.locked = true;
+    broadcastRoomState(roomCode);
+    games.conseil.adminStart(io, r, roomCode, { mode, malus });
+    touchRoom(r);
+  });
+
+  socket.on('conseil:vote', ({ target }, ack) => {
+    if (!roomCode) { ack && ack({ ok: false }); return; }
+    const r = getRoom(roomCode);
+    if (r.gameId !== 'conseil') { ack && ack({ ok: false }); return; }
+    games.conseil.playerVote(io, r, roomCode, (playerName || 'Joueur'), target, ack);
+    touchRoom(r);
+  });
+
+  socket.on('conseil:immunity', ({ name }) => {
+    if (role !== 'tv' || !roomCode) return;
+    const r = getRoom(roomCode);
+    if (r.gameId !== 'conseil') return;
+    games.conseil.adminSetImmunity(io, r, roomCode, name);
+    touchRoom(r);
+  });
+
+  socket.on('conseil:close', () => {
+    if (role !== 'tv' || !roomCode) return;
+    const r = getRoom(roomCode);
+    if (r.gameId !== 'conseil') return;
+    games.conseil.adminClose(io, r, roomCode, broadcastPlayers);
     r.locked = false;
     touchRoom(r);
     broadcastRoomState(roomCode);
