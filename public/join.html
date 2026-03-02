@@ -51,7 +51,7 @@ function renderArrowsBottom(arrows){
   return `<div class='archery-arrows-bottom'>${'<img src="/Visuels/archery_arrow_intact.png" alt="flèche intacte"/>'.repeat(intact)}${'<img src="/Visuels/archery_arrow_broken.png" alt="flèche cassée"/>'.repeat(broken)}</div>`;
 }
 
-function renderAction(){ if(!st||!me)return; const phase=st.phase; byId('phase').textContent=`Phase: ${phase}`; const a=byId('action'); const gs=st.gameState||{}; document.body.classList.toggle('archery-active', phase==='GAME_F');
+function renderAction(){ if(!st||!me)return; const phase=st.phase; byId('phase').textContent=phase==='GAME_F'?'':`Phase: ${phase}`; const a=byId('action'); const gs=st.gameState||{}; document.body.classList.toggle('archery-active', phase==='GAME_F');
 if(st.resultsShown){a.innerHTML='<p>Résultats affichés: réponses fermées.</p>';return;}
 if(phase==='GAME_A'){a.innerHTML=`<select id='t'>${playerList()}</select><button id='s'>Voter</button>`;byId('s').onclick=()=>send('A_VOTE',{targetPlayerId:byId('t').value});}
 else if(phase==='GAME_B'){a.innerHTML=`<input id='ans' placeholder='Ta réponse'/><button id='s'>Envoyer</button>`;byId('s').onclick=()=>send('B_ANSWER',{answer:byId('ans').value});}
