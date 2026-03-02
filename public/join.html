@@ -83,7 +83,9 @@
             style="--character-color:${c.color}"
             aria-label="Sélectionner ${c.file.replace('.png', '')}"
           >
-            <img src="/Visuels/joueur/${encodeURIComponent(c.file)}" alt="${c.file.replace('.png', '')}" />
+            <div class="character-thumb">
+              <img src="/Visuels/joueur/${encodeURIComponent(c.file)}" alt="${c.file.replace('.png', '')}" />
+            </div>
             <span>${c.file.replace('.png', '')}</span>
           </button>
         `;
