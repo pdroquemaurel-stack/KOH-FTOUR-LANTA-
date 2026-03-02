@@ -33,11 +33,14 @@ function buildGameCatalog() {
     GAME_B: [{ index: 0, label: '1 bonne réponse par question' }],
     GAME_C: CONFIG.price.map((q, idx) => ({ index: idx, label: String(q?.item || `Question ${idx + 1}`) })),
     GAME_D: CONFIG.top3.map((q, idx) => ({ index: idx, label: String(q?.theme || `Question ${idx + 1}`) })),
-    GAME_F: [{ index: 0, label: 'Vise bien ou fais toi des amis' }]
+    GAME_F: [{ index: 0, label: 'Vise bien ou fais toi des amis' }],
+    GAME_G: [{ index: 0, label: "Jeu de l'imposteur" }],
+    GAME_H: [{ index: 0, label: 'Épreuve du totem caché' }],
+    GAME_I: [{ index: 0, label: 'La porte cachée' }]
   };
 }
 
-const FLOW = ['LOBBY', 'INTRO', 'GAME_A', 'RESULTS_A', 'GAME_B', 'RESULTS_B', 'GAME_C', 'RESULTS_C', 'GAME_D', 'RESULTS_D', 'GAME_E', 'RESULTS_E', 'COUNCIL', 'COUNCIL_RESULT', 'FINAL', 'FINAL_RESULT', 'END'];
+const FLOW = ['LOBBY', 'INTRO', 'GAME_A', 'RESULTS_A', 'GAME_B', 'RESULTS_B', 'GAME_C', 'RESULTS_C', 'GAME_D', 'RESULTS_D', 'GAME_E', 'RESULTS_E', 'GAME_G', 'GAME_H', 'GAME_I', 'COUNCIL', 'COUNCIL_RESULT', 'FINAL', 'FINAL_RESULT', 'END'];
 const TV_SCREENS = ['LOBBY', 'WAITING', 'PLACEHOLDER'];
 
 const SESSION = {
@@ -66,6 +69,7 @@ const SESSION = {
 };
 
 let gameBTimer = null;
+let totemRevealTimer = null;
 
 function now() { return Date.now(); }
 function nowIso() { return new Date().toISOString(); }
@@ -132,6 +136,8 @@ function rankPlayers() {
 }
 
 function buildState() {
+  const publicGameState = JSON.parse(JSON.stringify(SESSION.gameState || {}));
+  delete publicGameState.impostorIds;
   return {
     sessionId: SESSION.id,
     createdAt: SESSION.createdAt,
@@ -151,7 +157,7 @@ function buildState() {
     finaleTop: SESSION.finaleTop,
     playerCount: SESSION.players.size,
     rankings: rankPlayers(),
-    gameState: SESSION.gameState,
+    gameState: publicGameState,
     gameAProgress: gameProgress(),
     gameProgress: gameProgress(),
     history: SESSION.history.slice(-10),
@@ -168,6 +174,7 @@ function publishResults(payload) {
 
 function setPhase(phase) {
   if (SESSION.phase === 'GAME_B' && phase !== 'GAME_B') clearGameBTimer();
+  if (totemRevealTimer && SESSION.phase === 'GAME_H' && phase !== 'GAME_H') { clearTimeout(totemRevealTimer); totemRevealTimer = null; }
   SESSION.phase = phase;
   SESSION.phaseIndex = FLOW.indexOf(phase);
   SESSION.phaseStartedAt = nowIso();
@@ -247,6 +254,25 @@ function initPhaseState(phase, options = {}) {
     const playerColors = {};
     contenders.forEach((pid, idx) => { playerColors[pid] = ['#ff595e','#ffca3a','#8ac926','#1982c4','#6a4c93','#f72585','#4cc9f0','#ffd166'][idx % 8]; });
     SESSION.gameState = { key: 'GAME_F', name: 'Vise bien ou fais toi des amis', stage: 'AIM', shots: {}, breakChoice: null, results: null, contenders, playerColors, completed: false };
+  } else if (phase === 'GAME_G') {
+    const ids = activePlayers().map((p) => p.playerId);
+    const shuffled = [...ids].sort(() => Math.random() - 0.5);
+    const impostorIds = shuffled.slice(0, Math.min(2, shuffled.length));
+    const baseWords = ['Jungle', 'Totem', 'Survie', 'Boussole', 'Palissade', 'Noix de coco', 'Flambeau'];
+    const word = baseWords[Math.floor(Math.random() * baseWords.length)];
+    SESSION.gameState = { key: 'GAME_G', stage: 'WORD_REVEAL', word, impostorIds, hasSeenWord: {}, alreadyPlayed: [], passageOrder: [], votes: {}, completed: false };
+  } else if (phase === 'GAME_H') {
+    const delayMs = 5000 + Math.floor(Math.random() * 10001);
+    const revealAt = now() + delayMs;
+    SESSION.gameState = { key: 'GAME_H', stage: 'WAITING', revealAt, clickedAt: {}, ranking: [], completed: false };
+    totemRevealTimer = setTimeout(() => {
+      if (SESSION.phase !== 'GAME_H' || SESSION.gameState?.stage !== 'WAITING') return;
+      SESSION.gameState.stage = 'REVEALED';
+      touch();
+      broadcastState();
+    }, delayMs);
+  } else if (phase === 'GAME_I') {
+    SESSION.gameState = { key: 'GAME_I', stage: 'CHOOSING', doorChoices: {}, winningDoor: null, completed: false };
   } else if (phase === 'COUNCIL') {
     SESSION.gameState = { key: 'COUNCIL', votes: {}, noSelfVote: true, completed: false };
   } else if (phase === 'FINAL') {
@@ -356,6 +382,9 @@ function showResultsCurrentPhase() {
   else if (SESSION.phase === 'GAME_D') resolveGameD();
   else if (SESSION.phase === 'GAME_E') resolveGameERound();
   else if (SESSION.phase === 'GAME_F') resolveGameF();
+  else if (SESSION.phase === 'GAME_G') resolveGameG();
+  else if (SESSION.phase === 'GAME_H') resolveGameH();
+  else if (SESSION.phase === 'GAME_I') resolveGameI();
   else if (SESSION.phase === 'COUNCIL') resolveCouncil();
   else if (SESSION.phase === 'FINAL') resolveFinal();
   else return;
@@ -370,6 +399,7 @@ function showResultsCurrentPhase() {
 
 function resetSession() {
   clearGameBTimer();
+  if (totemRevealTimer) { clearTimeout(totemRevealTimer); totemRevealTimer = null; }
   SESSION.players.clear();
   SESSION.socketsByPlayerId.clear();
   SESSION.phase = 'LOBBY';
@@ -549,6 +579,70 @@ function resolveFinal() {
   publishResults(payload);
 }
 
+function resolveGameG(revealedPlayerId) {
+  const g = SESSION.gameState || {};
+  const impostorIds = Array.isArray(g.impostorIds) ? g.impostorIds : [];
+  const chosen = String(revealedPlayerId || '');
+  const targetIsImpostor = impostorIds.includes(chosen);
+  const impacts = {};
+  for (const p of SESSION.players.values()) {
+    ensurePlayerScore(p);
+    let delta = 0;
+    if (targetIsImpostor) {
+      if (!impostorIds.includes(p.playerId)) delta = 1;
+    } else if (impostorIds.includes(p.playerId)) delta = 2;
+    p.score += delta;
+    impacts[p.playerId] = delta;
+  }
+  const payload = { game: 'G', impostorIds, revealedPlayerId: chosen, targetIsImpostor, impacts };
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), game: 'G', impostorIds, revealedPlayerId: chosen, targetIsImpostor });
+  publishResults(payload);
+}
+
+function resolveGameH() {
+  const g = SESSION.gameState || {};
+  const revealAt = Number(g.revealAt || now());
+  const entries = Object.entries(g.clickedAt || {})
+    .map(([pid, ts]) => ({ pid, ts: Number(ts), deltaMs: Math.max(0, Number(ts) - revealAt) }))
+    .sort((a, b) => a.deltaMs - b.deltaMs);
+  const points = [3, 2, 1];
+  const impacts = {};
+  entries.forEach((entry, idx) => {
+    const p = SESSION.players.get(entry.pid);
+    if (!p) return;
+    ensurePlayerScore(p);
+    const delta = points[idx] || 0;
+    p.score += delta;
+    impacts[entry.pid] = delta;
+  });
+  const payload = { game: 'H', entries, impacts, top5: entries.slice(0, 5) };
+  SESSION.gameState.ranking = entries;
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), game: 'H', entries: entries.slice(0, 5) });
+  publishResults(payload);
+}
+
+function resolveGameI() {
+  const g = SESSION.gameState || {};
+  const winningDoor = Number.isInteger(g.winningDoor) ? g.winningDoor : (1 + Math.floor(Math.random() * 3));
+  g.winningDoor = winningDoor;
+  const impacts = {};
+  for (const [pid, door] of Object.entries(g.doorChoices || {})) {
+    const p = SESSION.players.get(pid);
+    if (!p) continue;
+    ensurePlayerScore(p);
+    const delta = Number(door) === winningDoor ? 5 : 0;
+    p.score += delta;
+    impacts[pid] = delta;
+  }
+  const payload = { game: 'I', winningDoor, choices: g.doorChoices || {}, impacts };
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), game: 'I', winningDoor });
+  publishResults(payload);
+}
+
+
 function sendJson(res, status, payload) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(payload));
@@ -609,6 +703,9 @@ io.on('connection', (socket) => {
       if (SESSION.phase === 'GAME_C') resolveGameC();
       if (SESSION.phase === 'GAME_D') resolveGameD();
       if (SESSION.phase === 'GAME_E') resolveGameERound();
+      if (SESSION.phase === 'GAME_G') resolveGameG();
+      if (SESSION.phase === 'GAME_H') resolveGameH();
+      if (SESSION.phase === 'GAME_I') resolveGameI();
       if (SESSION.phase === 'COUNCIL') resolveCouncil();
       if (SESSION.phase === 'FINAL') resolveFinal();
       nextPhase(); initPhaseState(SESSION.phase);
@@ -622,6 +719,9 @@ io.on('connection', (socket) => {
         if (SESSION.phase === 'GAME_C') resolveGameC();
         if (SESSION.phase === 'GAME_D') resolveGameD();
         if (SESSION.phase === 'GAME_E') resolveGameERound();
+        if (SESSION.phase === 'GAME_G') resolveGameG();
+        if (SESSION.phase === 'GAME_H') resolveGameH();
+        if (SESSION.phase === 'GAME_I') resolveGameI();
       }
       if (SESSION.phase === 'COUNCIL') resolveCouncil();
       if (SESSION.phase === 'FINAL') resolveFinal();
@@ -633,7 +733,7 @@ io.on('connection', (socket) => {
     else if (command === 'TV_SCREEN') { if (TV_SCREENS.includes(payload?.screen)) SESSION.phase = payload.screen; }
     else if (command === 'LAUNCH_GAME') {
       const game = String(payload?.game || 'GAME_A');
-      const allowedGames = ['GAME_A', 'GAME_B', 'GAME_C', 'GAME_D', 'GAME_F'];
+      const allowedGames = ['GAME_A', 'GAME_B', 'GAME_C', 'GAME_D', 'GAME_F', 'GAME_G', 'GAME_H', 'GAME_I'];
       if (!allowedGames.includes(game)) return ack?.({ ok: false, error: 'UNSUPPORTED_GAME' });
       SESSION.started = true;
       setPhase(game);
@@ -648,6 +748,51 @@ io.on('connection', (socket) => {
       if (!Array.isArray(SESSION.gameState?.questions) || !SESSION.gameState.questions.length) return ack?.({ ok: false, error: 'NO_QUESTIONS' });
       setGameBReview(Number(payload?.index || 0));
       resolveGameB();
+    }
+    else if (command === 'GAME_G_NEXT_STAGE') {
+      if (SESSION.phase !== 'GAME_G') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      const g = SESSION.gameState || {};
+      if (g.stage === 'WORD_REVEAL') g.stage = 'PASSAGES';
+      else if (g.stage === 'PASSAGES') g.stage = 'VOTE';
+      else if (g.stage === 'VOTE') g.stage = 'RESULT';
+      else return ack?.({ ok: false, error: 'INVALID_STAGE' });
+    }
+    else if (command === 'GAME_G_DRAW_PLAYER') {
+      if (SESSION.phase !== 'GAME_G') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      const g = SESSION.gameState || {};
+      if (g.stage !== 'PASSAGES') return ack?.({ ok: false, error: 'INVALID_STAGE' });
+      const pool = activePlayers().map((p) => p.playerId).filter((pid) => !g.alreadyPlayed.includes(pid));
+      const filtered = g.alreadyPlayed.length === 0 ? pool.filter((pid) => !g.impostorIds.includes(pid)) : pool;
+      const source = filtered.length ? filtered : pool;
+      if (!source.length) return ack?.({ ok: false, error: 'NO_PLAYER_LEFT' });
+      const picked = source[Math.floor(Math.random() * source.length)];
+      g.alreadyPlayed.push(picked);
+      g.passageOrder.push(picked);
+    }
+    else if (command === 'GAME_G_REVEAL_RESULT') {
+      if (SESSION.phase !== 'GAME_G') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      resolveGameG(payload?.revealedPlayerId);
+      SESSION.resultsShown = true;
+      SESSION.answerLocked = true;
+      SESSION.gameState.stage = 'RESULT';
+    }
+    else if (command === 'GAME_H_REVEAL') {
+      if (SESSION.phase !== 'GAME_H') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      SESSION.gameState.stage = 'REVEALED';
+      SESSION.gameState.revealAt = now();
+      if (totemRevealTimer) { clearTimeout(totemRevealTimer); totemRevealTimer = null; }
+    }
+    else if (command === 'GAME_I_REVEAL') {
+      if (SESSION.phase !== 'GAME_I') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      resolveGameI();
+      SESSION.resultsShown = true;
+      SESSION.answerLocked = true;
+      SESSION.gameState.stage = 'RESULT';
+    }
+    else if (command === 'FINISH_GAME') {
+      setPhase('END');
+      SESSION.gameState = { key: 'END', finalRanking: rankPlayers() };
+      SESSION.resultsShown = true;
     }
     else if (command === 'GAME_B_TOGGLE_VALIDATE') {
       if (SESSION.phase !== 'GAME_B') return ack?.({ ok: false, error: 'INVALID_PHASE' });
@@ -736,6 +881,29 @@ io.on('connection', (socket) => {
       const target = payload?.targetPlayerId || '';
       if (target === pid) return ack?.({ ok: false, error: 'NO_SELF_VOTE' });
       SESSION.gameState.answers[pid] = target;
+    } else if (SESSION.phase === 'GAME_G' && type === 'G_FETCH_WORD') {
+      if (SESSION.gameState.stage !== 'WORD_REVEAL') return ack?.({ ok: false, error: 'INVALID_STAGE' });
+      const isImpostor = (SESSION.gameState.impostorIds || []).includes(pid);
+      return ack?.({ ok: true, isImpostor, word: SESSION.gameState.word || '' });
+    } else if (SESSION.phase === 'GAME_G' && type === 'G_CONFIRM_WORD') {
+      if (SESSION.gameState.stage !== 'WORD_REVEAL') return ack?.({ ok: false, error: 'INVALID_STAGE' });
+      SESSION.gameState.hasSeenWord[pid] = true;
+    } else if (SESSION.phase === 'GAME_G' && type === 'G_VOTE') {
+      if (SESSION.gameState.stage !== 'VOTE') return ack?.({ ok: false, error: 'INVALID_STAGE' });
+      if (SESSION.gameState.votes[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
+      const target = String(payload?.targetPlayerId || '');
+      if (!SESSION.players.has(target)) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
+      SESSION.gameState.votes[pid] = target;
+    } else if (SESSION.phase === 'GAME_H' && type === 'H_GRAB_TOTEM') {
+      if (SESSION.gameState.stage !== 'REVEALED') return ack?.({ ok: false, error: 'TOO_EARLY' });
+      if (SESSION.gameState.clickedAt[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
+      SESSION.gameState.clickedAt[pid] = now();
+    } else if (SESSION.phase === 'GAME_I' && type === 'I_PICK_DOOR') {
+      if (SESSION.gameState.stage !== 'CHOOSING') return ack?.({ ok: false, error: 'INVALID_STAGE' });
+      if (SESSION.gameState.doorChoices[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
+      const door = Number(payload?.door);
+      if (![1,2,3].includes(door)) return ack?.({ ok: false, error: 'INVALID_DOOR' });
+      SESSION.gameState.doorChoices[pid] = door;
     } else if (SESSION.phase === 'GAME_B' && type === 'B_ANSWER') {
       const g = SESSION.gameState || {};
       if (g.stage !== 'QUESTION') return ack?.({ ok: false, error: 'PHASE_LOCKED' });
