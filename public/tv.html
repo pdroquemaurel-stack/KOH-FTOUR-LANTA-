@@ -1,106 +1,54 @@
 <!doctype html><html lang="fr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>TV</title><link rel="stylesheet" href="/style.css"/></head><body class="tv-stage">
 <main class="tv-layout">
   <section class="tv-main">
+    <div id="questionSeriesInfo" class="tv-series-info"></div>
     <div id="bigQuestion" class="tv-question"></div>
+    <div id="questionTimer" class="tv-question-timer" style="display:none">⏱️ <span id="questionTimerValue">--</span>s</div>
     <div id="bigRule" class="tv-rule"></div>
+    <div id="awardFlash" class="tv-award-flash" style="display:none"></div>
     <div id="resultsBlock" class="tv-results" style="display:none"></div>
-    <div id="playersBar" class="tv-players-bar"></div>
   </section>
-  <aside class="tv-scoreboard">
-    <h3>Classement</h3>
-    <ol id="scoreList"></ol>
-  </aside>
+  <aside class="tv-scoreboard"><h3>Classement</h3><ol id="scoreList"></ol></aside>
 </main>
 <audio id="bgMusic" src="/audio/Koh-Lanta Main Theme (Aventuri)  EPIC VERSION.mp3" loop autoplay></audio>
 <script src="/socket.io/socket.io.js"></script><script>
 const socket=io({transports:['websocket','polling']});
 const bigQuestion=document.getElementById('bigQuestion');
 const bigRule=document.getElementById('bigRule');
-const playersBar=document.getElementById('playersBar');
+const questionSeriesInfo=document.getElementById('questionSeriesInfo');
 const scoreList=document.getElementById('scoreList');
 const resultsBlock=document.getElementById('resultsBlock');
+const timerEl=document.getElementById('questionTimer');
+const timerValueEl=document.getElementById('questionTimerValue');
+const awardFlash=document.getElementById('awardFlash');
 const bgMusic=document.getElementById('bgMusic');
-bgMusic.volume=0.5;
-let audioErrorSent=false;
-function reportAudioError(reason){
-  if(audioErrorSent) return;
-  audioErrorSent=true;
-  socket.emit('tv:audio_error',{reason:String(reason||'AUDIO_PLAY_BLOCKED')});
-}
-
-function rulesFor(s){
-  const map={GAME_A:'Vote pour un joueur. 1 vote unique.',GAME_B:'Trouve la bonne réponse le plus vite possible.',GAME_C:'Devine le juste prix le plus proche.',GAME_D:'Donne tes 3 meilleures réponses.',GAME_E:'Choisis PARTAGER ou TRAHIR.',GAME_F:'Vise verticalement puis horizontalement.',COUNCIL:'Vote contre un joueur.',FINAL:'Parie puis réponds à la question finale.'};
-  if(map[s.phase]) return map[s.phase];
-  return '';
-}
-function questionFor(s){
-  const g=s.gameState||{};
-  if(s.phase==='GAME_A') return g.question||'Question en cours...';
-  if(s.phase==='GAME_B') return g.prompt||'Question en cours...';
-  if(s.phase==='GAME_C') return g.item?`Prix à estimer : ${g.item}`:'Question en cours...';
-  if(s.phase==='GAME_D') return g.theme?`Thème : ${g.theme}`:'Question en cours...';
-  if(s.phase==='GAME_F') return 'Vise bien ou fais toi des amis';
-  if(s.phase==='FINAL') return g.question||'Question finale';
-  return '';
-}
-function arrowsIcons(p){
-  const total=2;
-  const left=Math.max(0,Math.min(total,Number(p.arrows??2)));
-  const broken=Math.max(0,total-left);
-  return `<span class='tv-arrows'>${'<img src="/Visuels/archery_arrow_intact.png" alt="flèche intacte"/>' .repeat(left)}${'<img src="/Visuels/archery_arrow_broken.png" alt="flèche cassée"/>' .repeat(broken)}</span>`;
-}
-
-function renderResults(s){
-  const r=s.gameState?.results;
-  if(!s.resultsShown||!r){resultsBlock.style.display='none'; resultsBlock.classList.remove('archery-results'); return;}
-  const nameById = Object.fromEntries((s.rankings||[]).map((p)=>[p.playerId,p.name]));
-  resultsBlock.classList.remove('archery-results');
-  if(r.game==='A'){
-    const top3=(r.top3||[]).map((x,idx)=>`<li>#${idx+1} ${nameById[x.playerId]||x.playerId} (${x.votesCount})</li>`).join('');
-    const impacts=(s.rankings||[]).map((p)=>{const d=(r.impacts||{})[p.playerId]||0; const cls=d>0?'plus':(d<0?'minus':''); const text=d>0?`+${d}`:`${d}`; return `<li>${p.name} <span class='${cls}'>${text}</span></li>`}).join('');
-    resultsBlock.innerHTML=`<h3>Top 3 des plus cités</h3><ol>${top3||'<li>Aucun</li>'}</ol><h3>Impact points</h3><ul>${impacts}</ul>`;
-  } else if(r.game==='F') {
-    const colors=r.playerColors||{};
-    const participatedShots=(r.shots||[]);
-    const shots=participatedShots.map((shot)=>{
-      const left=50 + (shot.x/2);
-      const top=50 - (shot.y/2);
-      const color=colors[shot.pid]||'#fff';
-      const name=nameById[shot.pid]||shot.pid;
-      return `<span class='archery-shot-wrap' style='left:${left}%;top:${top}%;color:${color}'><span class='archery-shot' style='background:${color}' title='${name}'></span><span class='archery-shot-name'>${name}</span></span>`;
-    }).join('');
-    const withDistance=participatedShots.map((shot)=>({
-      pid:shot.pid,
-      distance:Math.hypot(Number(shot.x)||0, Number(shot.y)||0)
-    }));
-    withDistance.sort((a,b)=>a.distance-b.distance);
-    const closestPid=withDistance[0]?.pid;
-    const farthestPid=withDistance[withDistance.length-1]?.pid;
-    const closest=nameById[closestPid]||closestPid||'-';
-    const farthest=nameById[farthestPid]||farthestPid||'-';
-    const breakInfo=r.breakChoice?`<p>${nameById[r.breakChoice.by]||r.breakChoice.by} casse une flèche de ${nameById[r.breakChoice.target]||r.breakChoice.target}</p>`:'';
-    const winner=r.winner?`<p><strong>🏆 Vainqueur: ${nameById[r.winner]||r.winner}</strong></p>`:'';
-    const noShot=(r.noShot||[]).length?`<p>❌ Sans tir (perdent 1 flèche): ${(r.noShot||[]).map((pid)=>nameById[pid]||pid).join(', ')}</p>`:'';
-    resultsBlock.classList.add('archery-results');
-    resultsBlock.innerHTML=`<h3>Résultats Tir à l'arc</h3><div class='archery-target'><img src='/Visuels/archery_target_board.png' alt='Cible'/>${shots}</div><p>🎯 Plus proche (participants): <strong>${closest}</strong></p><p>💥 Plus éloigné (participants): <strong>${farthest}</strong> (perd 1 flèche)</p>${noShot}${breakInfo}${winner}`;
-  } else {
-    resultsBlock.classList.remove('archery-results');
-    const pretty=JSON.stringify(r,(k,v)=>nameById[v]||v,2);
-    resultsBlock.innerHTML=`<h3>Résultats ${r.game||''}</h3><pre>${pretty}</pre>`;
-  }
-  resultsBlock.style.display='block';
-}
-
+let timerInterval=null,lastTickSecond=null,lastAwardAt='';
+let lastScoreHtml='';
+const beepCtx=(window.AudioContext||window.webkitAudioContext)?new (window.AudioContext||window.webkitAudioContext)():null;
+function beep(){ if(!beepCtx) return; if(beepCtx.state==='suspended') beepCtx.resume().catch(()=>{}); const o=beepCtx.createOscillator(), g=beepCtx.createGain(); o.frequency.value=880; g.gain.value=.05; o.connect(g); g.connect(beepCtx.destination); const t=beepCtx.currentTime; o.start(t); o.stop(t+.08);} 
+function avatarSrc(v){ const raw=String(v||'').trim(); if(!raw) return '/Visuels/joueur/Lion%20rouge%20sang.png'; const cleaned=raw.replace(/^\/+/,''); return '/' + encodeURI(cleaned); }
+function stopCountdown(){ if(timerInterval){clearInterval(timerInterval);timerInterval=null;} timerEl.style.display='none'; timerValueEl.textContent='--'; lastTickSecond=null; }
+function startCountdown(state){ stopCountdown(); if(state.phase!=='GAME_B'||state.gameState?.stage!=='QUESTION'||!state.phaseTimer?.endsAt) return; timerEl.style.display=''; const tick=()=>{const remain=Math.max(0,Math.ceil((Number(state.phaseTimer.endsAt)-Date.now())/1000)); timerValueEl.textContent=remain; if(remain<=5&&remain>0&&remain!==lastTickSecond){beep();lastTickSecond=remain;} if(remain<=0) stopCountdown();}; tick(); timerInterval=setInterval(tick,200);} 
+function rulesFor(s){ const map={GAME_A:'Vote pour un joueur.',GAME_B:'1 bonne réponse par question.',GAME_C:'Le juste prix en dirham.',GAME_D:'Blind test: titre + artiste.',GAME_E:'Choisis PARTAGER ou TRAHIR.',GAME_F:'Vise puis tire.',GAME_G:'Imposteurs : vote final.',COUNCIL:'Vote secret.',FINAL:'Parie puis réponds.'}; return map[s.phase]||''; }
+function questionFor(s){ const g=s.gameState||{}; if(s.previewGame) return s.previewGame.title||''; if(s.phase==='GAME_A') return g.question||''; if(s.phase==='GAME_B'){ if(g.stage==='QUESTION') return g.questions?.[g.currentIndex]?.prompt||''; if(g.stage==='REVIEW') return g.questions?.[g.reviewIndex]?.prompt||''; return ''; } if(s.phase==='GAME_C') return g.item?`Objet : ${g.item}`:''; if(s.phase==='GAME_D') return g.stage==='PREVIEW'?'Blind test prêt ?':(g.prompt||'Blind test'); if(s.phase==='GAME_F') return 'Vise bien ou fais toi des amis'; if(s.phase==='GAME_G') return 'Désignez un joueur'; if(s.phase==='FINAL') return g.question||''; return ''; }
+function questionSeriesText(s){ if(s.phase!=='GAME_B') return ''; const g=s.gameState||{}; const total=(g.questions||[]).length||0; if(!total) return ''; const idx=g.stage==='REVIEW'?Number(g.reviewIndex||0):Number(g.currentIndex||0); return `Question ${Math.max(1,idx+1)} / ${total}`; }
+function arrowsIcons(p){ const left=Math.max(0,Math.min(2,Number(p.arrows??2))); const broken=2-left; return `<span class='tv-arrows'>${'<img src="/Visuels/archery_arrow_intact.png" alt="flèche intacte"/>'.repeat(left)}${'<img src="/Visuels/archery_arrow_broken.png" alt="flèche cassée"/>'.repeat(broken)}</span>`; }
+function renderAward(s){ const a=s.lastAward; if(!a||!a.at||a.at===lastAwardAt) return; lastAwardAt=a.at; awardFlash.innerHTML=`<div>${a.name}</div><div class='plus'>+${a.delta}</div>`; awardFlash.style.display=''; setTimeout(()=>{awardFlash.style.display='none';},2200); }
+function renderResults(s){ const r=s.gameState?.results; if(!s.resultsShown||!r){resultsBlock.style.display='none'; return;}
+  const deltas=s.lastScoreDeltas||{};
+  const names=Object.fromEntries((s.rankings||[]).map((p)=>[p.playerId,p.name]));
+  const deltaList=Object.entries(deltas).filter(([,v])=>Number(v)).map(([pid,v])=>`<li>${names[pid]||pid} <span class='${v>0?'plus':'minus'}'>${v>0?'+':''}${v}</span></li>`).join('');
+  resultsBlock.style.overflow='auto'; if(r.game==='C'){
+    resultsBlock.style.overflow='hidden'; const vals=(r.answers||[]).map(x=>Number(x.value)).filter(n=>!Number.isNaN(n)); const real=Number(r.real||0); const min=Math.min(real,...vals), max=Math.max(real,...vals), span=Math.max(1,max-min); const nameById=Object.fromEntries((s.rankings||[]).map(p=>[p.playerId,p.name])); const dots=(r.answers||[]).map(x=>{const pct=((Number(x.value)-min)/span)*100; return `<div class='price-dot' style='left:${pct}%'><span>●</span><small>${nameById[x.pid]||x.pid}<br/>${x.value} DH</small></div>`;}).join(''); const rp=((real-min)/span)*100; resultsBlock.innerHTML=`<h3>Le juste prix — Frise</h3><div class='price-line-wrap big'><div class='price-line'></div>${dots}<div class='price-real' style='left:${rp}%'><span>◉</span><small>${real} DH</small></div></div><p class='small'>${Math.round(min)} DH → ${Math.round(max)} DH</p>`; }
+ else if(r.game==='F'){ const by=names[r.breakChoice?.by]||r.breakChoice?.by||''; const tg=names[r.breakChoice?.target]||r.breakChoice?.target||''; const w=r.winner?`<p><strong>🏆 ${names[r.winner]||r.winner} gagne +2 points</strong></p>`:''; resultsBlock.innerHTML=`<h3>Résultats F</h3><p>${by} a décidé de casser la flèche de ${tg}</p>${w}${deltaList?`<h4>Points</h4><ul>${deltaList}</ul>`:''}`; } else {resultsBlock.innerHTML=`<h3>Résultats ${r.game||''}</h3><pre>${JSON.stringify(r,null,2)}</pre>${deltaList?`<h4>Points</h4><ul>${deltaList}</ul>`:''}`;} resultsBlock.style.display='block'; }
 socket.on('game:state',(s)=>{
   bigQuestion.textContent=questionFor(s);
-  bigRule.textContent=rulesFor(s);
-  bgMusic.muted=!!s.tvMuted;
-  if(!bgMusic.muted){ bgMusic.play().catch((e)=>reportAudioError(e?.message||'AUDIO_PLAY_BLOCKED')); }
-  renderResults(s);
-  const nameById = Object.fromEntries((s.rankings||[]).map((p)=>[p.playerId,p.name]));
-  const answeredIds=(s.gameProgress?.answeredPlayerIds||s.gameAProgress?.answeredPlayerIds||[]);
-  playersBar.innerHTML=(s.rankings||[]).map(p=>`<span class='${answeredIds.includes(p.playerId)?'answered':''}'>${p.name}</span>`).join('');
-  scoreList.innerHTML=(s.rankings||[]).map(p=>`<li><span class='${answeredIds.includes(p.playerId)?'answered':''}'>${p.name} ${arrowsIcons(p)}</span><strong>${p.score}</strong></li>`).join('');
+  if(s.previewGame){ bigRule.textContent=`${s.previewGame.rules} • Points: ${s.previewGame.points}`; }
+  else bigRule.textContent=rulesFor(s);
+  questionSeriesInfo.textContent=questionSeriesText(s);
+  startCountdown(s); renderResults(s); renderAward(s);
+  const answeredIds=(s.gameProgress?.answeredPlayerIds||[]);
+  const scoreHtml=(s.rankings||[]).map(p=>{ const noArrows=(s.phase==='GAME_F'&&Number(p.arrows||0)<=0); return `<li><span class='${answeredIds.includes(p.playerId)?'answered':''} ${noArrows?'no-arrows':''}'><span class='tv-avatar-wrap'><img class='tv-player-avatar' src='${avatarSrc(p.animal)}' alt='joueur'/>${noArrows?'<span class="tv-avatar-cross">✖</span>':''}</span><span>${p.name}</span> ${arrowsIcons(p)}</span><strong>${p.score}</strong></li>`; }).join('');
+  if(scoreHtml!==lastScoreHtml){ scoreList.innerHTML=scoreHtml; lastScoreHtml=scoreHtml; }
 });
-bgMusic.addEventListener('error',()=>reportAudioError('AUDIO_ELEMENT_ERROR'));
 </script></body></html>
