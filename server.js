@@ -65,7 +65,8 @@ const SESSION = {
   paused: false,
   resultsShown: false,
   tvMuted: false,
-  lastTvAudioError: null
+  lastTvAudioError: null,
+  previewGame: { game: 'GAME_A', questionIndex: 0 }
 };
 
 let gameBTimer = null;
@@ -75,7 +76,7 @@ function now() { return Date.now(); }
 function nowIso() { return new Date().toISOString(); }
 function norm(s) { return String(s || '').trim().toLowerCase(); }
 function safeName(v) { return String(v || '').trim().slice(0, 24) || 'Aventurier'; }
-function safeAnimal(v) { return String(v || '').trim().slice(0, 24) || 'Tigre'; }
+function safeAnimal(v) { return String(v || '').trim().slice(0, 160) || 'Tigre'; }
 function touch() { SESSION.updatedAt = nowIso(); }
 function phaseAllowsActions() { return SESSION.started && !SESSION.paused && !SESSION.answerLocked; }
 function activePlayers() { return [...SESSION.players.values()].filter((p) => !p.eliminated); }
@@ -138,6 +139,7 @@ function rankPlayers() {
 function buildState() {
   const publicGameState = JSON.parse(JSON.stringify(SESSION.gameState || {}));
   delete publicGameState.impostorIds;
+  if (SESSION.phase === 'GAME_C' && !SESSION.resultsShown) delete publicGameState.realPrice;
   return {
     sessionId: SESSION.id,
     createdAt: SESSION.createdAt,
@@ -161,7 +163,8 @@ function buildState() {
     gameAProgress: gameProgress(),
     gameProgress: gameProgress(),
     history: SESSION.history.slice(-10),
-    gameCatalog: buildGameCatalog()
+    gameCatalog: buildGameCatalog(),
+    previewGame: SESSION.previewGame
   };
 }
 
@@ -234,11 +237,11 @@ function initPhaseState(phase, options = {}) {
   } else if (phase === 'GAME_C') {
     const selectedIndex = Math.max(0, Number(options?.index || 0));
     const item = CONFIG.price[selectedIndex] || { item: 'Item', price: 100 };
-    SESSION.gameState = { key: 'GAME_C', index: selectedIndex, item: item.item, realPrice: item.price, withoutOver: true, answers: {}, completed: false };
+    SESSION.gameState = { key: 'GAME_C', index: selectedIndex, item: item.item, realPrice: item.price, maxPrice: Math.max(0, Number(item.price) * 5), withoutOver: true, answers: {}, completed: false };
   } else if (phase === 'GAME_D') {
     const selectedIndex = Math.max(0, Number(options?.index || 0));
-    const t = CONFIG.top3[selectedIndex] || { theme: 'Thème', answers: [] };
-    SESSION.gameState = { key: 'GAME_D', index: selectedIndex, theme: t.theme, expected: t.answers, answers: {}, completed: false };
+    const t = CONFIG.blindtest[selectedIndex] || { title: `Chanson ${selectedIndex + 1}`, artist: 'Artiste inconnu' };
+    SESSION.gameState = { key: 'GAME_D', index: selectedIndex, songTitle: t.title || `Chanson ${selectedIndex + 1}`, artist: t.artist || 'Artiste inconnu', stage: 'INTRO', awards: {}, winners: [], completed: false };
   } else if (phase === 'GAME_E') {
     const ids = activePlayers().map((p) => p.playerId);
     const pairs = [];
@@ -436,39 +439,51 @@ function resolveGameC() {
   const real = Number(SESSION.gameState.realPrice);
   const list = Object.entries(SESSION.gameState.answers).map(([pid, v]) => ({ pid, value: Number(v) }));
   const valid = list.filter((x) => !Number.isNaN(x.value));
-  valid.sort((a, b) => Math.abs(a.value - real) - Math.abs(b.value - real));
-  const first = valid[0]?.pid;
-  const second = valid[1]?.pid;
-  valid.forEach((x) => {
-    const p = SESSION.players.get(x.pid);
-    if (!p) return;
-    ensurePlayerScore(p);
-    if (SESSION.gameState.withoutOver && x.value > real) p.score -= 1;
-  });
-  if (first && SESSION.players.get(first)) SESSION.players.get(first).score += 3;
-  if (second && SESSION.players.get(second)) SESSION.players.get(second).score += 1;
-  const payload = { game: 'C', real, first, second, answers: valid };
+  const sortedDesc = [...valid].sort((a, b) => b.value - a.value);
+  const underOrEqual = [...valid].filter((x) => x.value <= real).sort((a, b) => (real - a.value) - (real - b.value));
+  const first = underOrEqual[0]?.pid || null;
+  const second = underOrEqual[1]?.pid || null;
+  if (first && SESSION.players.get(first)) {
+    ensurePlayerScore(SESSION.players.get(first));
+    SESSION.players.get(first).score += 2;
+  }
+  if (second && SESSION.players.get(second)) {
+    ensurePlayerScore(SESSION.players.get(second));
+    SESSION.players.get(second).score += 1;
+  }
+  const payload = {
+    game: 'C',
+    real,
+    first,
+    second,
+    answers: sortedDesc,
+    closestUnder: underOrEqual.map((x) => x.pid).slice(0, 2)
+  };
   SESSION.gameState.results = payload;
   SESSION.history.push({ at: nowIso(), game: 'C', real, first, second });
   publishResults(payload);
 }
 
 function resolveGameD() {
-  const expected = (SESSION.gameState.expected || []).map(norm);
-  const results = {};
-  Object.entries(SESSION.gameState.answers).forEach(([pid, arr]) => {
-    const guessed = (arr || []).map(norm);
-    const hit = guessed.filter((x) => expected.includes(x)).length;
+  const winners = [];
+  for (const [pid, parts] of Object.entries(SESSION.gameState.awards || {})) {
+    const title = !!parts?.title;
+    const artist = !!parts?.artist;
+    const gained = (title ? 0.5 : 0) + (artist ? 0.5 : 0);
+    if (!gained) continue;
     const p = SESSION.players.get(pid);
-    if (!p) return;
+    if (!p) continue;
     ensurePlayerScore(p);
-    p.score += hit;
-    if (hit >= 3) p.score += 2;
-    results[pid] = hit;
-  });
-  const payload = { game: 'D', expected, results };
+    p.score += gained;
+    winners.push({ pid, title, artist, gained });
+  }
+  winners.sort((a, b) => b.gained - a.gained || (SESSION.players.get(a.pid)?.name || '').localeCompare(SESSION.players.get(b.pid)?.name || ''));
+  const payload = { game: 'D', songTitle: SESSION.gameState.songTitle, artist: SESSION.gameState.artist, winners };
+  SESSION.gameState.winners = winners;
   SESSION.gameState.results = payload;
-  SESSION.history.push({ at: nowIso(), game: 'D', expected, results });
+  SESSION.gameState.stage = 'RESULT';
+  SESSION.gameState.completed = true;
+  SESSION.history.push({ at: nowIso(), game: 'D', songTitle: SESSION.gameState.songTitle, artist: SESSION.gameState.artist, winners });
   publishResults(payload);
 }
 
@@ -731,11 +746,19 @@ io.on('connection', (socket) => {
     else if (command === 'SET_IMMUNITY') { SESSION.immunityPlayerId = payload?.playerId || null; }
     else if (command === 'SET_COUNCIL_MODE') { SESSION.councilMode = payload?.mode === 'PENALTY' ? 'PENALTY' : 'ELIMINATION'; }
     else if (command === 'TV_SCREEN') { if (TV_SCREENS.includes(payload?.screen)) SESSION.phase = payload.screen; }
+    else if (command === 'PREVIEW_GAME') {
+      const game = String(payload?.game || 'GAME_A');
+      const questionIndex = Math.max(0, Number(payload?.questionIndex || 0));
+      SESSION.previewGame = { game, questionIndex };
+      setPhase('WAITING');
+      SESSION.gameState = { key: 'PREVIEW', game, questionIndex };
+    }
     else if (command === 'LAUNCH_GAME') {
       const game = String(payload?.game || 'GAME_A');
       const allowedGames = ['GAME_A', 'GAME_B', 'GAME_C', 'GAME_D', 'GAME_F', 'GAME_G', 'GAME_H', 'GAME_I'];
       if (!allowedGames.includes(game)) return ack?.({ ok: false, error: 'UNSUPPORTED_GAME' });
       SESSION.started = true;
+      SESSION.previewGame = { game, questionIndex: Number(payload?.questionIndex || 0) };
       setPhase(game);
       initPhaseState(game, {
         index: Number(payload?.questionIndex || 0),
@@ -788,6 +811,35 @@ io.on('connection', (socket) => {
       SESSION.resultsShown = true;
       SESSION.answerLocked = true;
       SESSION.gameState.stage = 'RESULT';
+    }
+    else if (command === 'GAME_D_AWARD') {
+      if (SESSION.phase !== 'GAME_D') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      const pid = String(payload?.playerId || '');
+      if (!SESSION.players.has(pid)) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
+      const type = payload?.type;
+      SESSION.gameState.awards = SESSION.gameState.awards || {};
+      SESSION.gameState.awards[pid] = SESSION.gameState.awards[pid] || { title: false, artist: false };
+      if (type === 'FULL') {
+        SESSION.gameState.awards = { [pid]: { title: true, artist: true } };
+      } else if (type === 'TITLE') {
+        SESSION.gameState.awards[pid].title = !SESSION.gameState.awards[pid].title;
+      } else if (type === 'ARTIST') {
+        SESSION.gameState.awards[pid].artist = !SESSION.gameState.awards[pid].artist;
+      } else {
+        return ack?.({ ok: false, error: 'INVALID_TYPE' });
+      }
+      resolveGameD();
+      SESSION.resultsShown = true;
+      SESSION.answerLocked = true;
+    }
+    else if (command === 'GAME_D_NEXT_SONG') {
+      if (SESSION.phase !== 'GAME_D') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      SESSION.gameState.awards = {};
+      SESSION.gameState.winners = [];
+      SESSION.gameState.stage = 'INTRO';
+      SESSION.gameState.results = null;
+      SESSION.resultsShown = false;
+      SESSION.answerLocked = false;
     }
     else if (command === 'FINISH_GAME') {
       setPhase('END');
@@ -919,10 +971,12 @@ io.on('connection', (socket) => {
       g.currentAnswers = serializeGameBAnswers(qIdx);
     } else if (SESSION.phase === 'GAME_C' && type === 'C_GUESS') {
       if (SESSION.gameState.answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
-      SESSION.gameState.answers[pid] = Number(payload?.value);
+      const max = Math.max(0, Number(SESSION.gameState.maxPrice || 0));
+      const raw = Number(payload?.value);
+      if (Number.isNaN(raw)) return ack?.({ ok: false, error: 'INVALID_VALUE' });
+      SESSION.gameState.answers[pid] = Math.max(0, Math.min(max, raw));
     } else if (SESSION.phase === 'GAME_D' && type === 'D_TOP3') {
-      if (SESSION.gameState.answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
-      SESSION.gameState.answers[pid] = Array.isArray(payload?.answers) ? payload.answers.slice(0, 3) : [];
+      return ack?.({ ok: false, error: 'DISABLED_FOR_BLINDTEST' });
     } else if (SESSION.phase === 'GAME_E' && type === 'E_CHOICE') {
       if (SESSION.gameState.choices[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
       SESSION.gameState.choices[pid] = payload?.choice === 'BETRAY' ? 'BETRAY' : 'SHARE';
