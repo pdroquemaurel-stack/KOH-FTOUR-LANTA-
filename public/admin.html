@@ -48,17 +48,8 @@
   <div class="panel mt"><h3>Scores joueurs (clic pseudo = +1)</h3><ul id="roster" class="roster"></ul></div>
 </section></div>
 <script src="/socket.io/socket.io.js"></script><script>
-const socket=io({transports:['websocket','polling']});
-let state=null, selectedGame='';
-const byId=id=>document.getElementById(id);
-const GAME_LABELS={GAME_A:'Jeu A — Susceptible de...',GAME_B:'Jeu B — 1 bonne réponse par question',GAME_C:'Jeu C — Le juste prix',GAME_D:'Jeu D — Blind test',GAME_F:'Jeu F — Vise bien ou fais toi des amis',GAME_G:'Jeu G — Imposteurs'};
-const GAME_RULES={
-  GAME_A:{title:'Jeu A',rules:'Vote pour un joueur',points:'+1/-2 selon votes'},
-  GAME_B:{title:'Jeu B',rules:'Questions libres chronométrées',points:'+1 validation admin'},
-  GAME_C:{title:'Jeu C — Le juste prix',rules:'Estimation en dirham',points:'+3 premier, +1 second'},
-  GAME_D:{title:'Jeu D — Blind test',rules:'Trouver titre et artiste',points:'0,5 titre + 0,5 artiste'},
-  GAME_F:{title:'Jeu F',rules:'Tir à l\'arc',points:'Selon résultats'}
-};
+const socket=io({transports:['websocket','polling']});let state=null;const byId=id=>document.getElementById(id);
+const GAME_LABELS={GAME_A:'Jeu A — Susceptible de...',GAME_B:'Jeu B — 1 bonne réponse par question',GAME_C:'Jeu C — Juste Prix',GAME_D:'Jeu D — Blind test',GAME_F:'Jeu F — Vise bien ou fais toi des amis',GAME_G:'Jeu G — Imposteur',GAME_H:'Jeu H — Totem Caché',GAME_I:'Jeu I — Porte Cachée'};
 function cmd(command,payload,cb){socket.emit('admin:command',{command,payload},cb);}
 function scoreControls(p){ return `<div class='score-ctl'><button data-score='-1' data-p='${p.playerId}' class='secondary'>-1</button><strong>${p.score}</strong><button data-score='1' data-p='${p.playerId}'>+1</button></div>`; }
 function arrowControls(p){ const arrows=Math.max(0,Math.min(2,Number(p.arrows??2))); return `<button class='secondary' data-restore-arrow='${p.playerId}'>🏹 ${arrows}/2 (+1)</button>`; }
@@ -98,16 +89,46 @@ function render(s){
   state=s; byId('phase').textContent=s.phase; byId('toggleTvMute').textContent=s.tvMuted?'TV: Démuter':'TV: Muter';
   fillGamePicker(s); fillQuestionPicker(s); renderGameInfo();
   const roster=byId('roster'); roster.innerHTML='';
-  s.rankings.forEach((p)=>{ const li=document.createElement('li'); li.innerHTML=`<div>#${p.rank} <strong data-click-point='${p.playerId}' style='cursor:pointer'>${p.name}</strong> <span class='small'>(${p.animal})</span> ${p.eliminated?'🪦':''}</div><div class='grid'>${arrowControls(p)}${scoreControls(p)}</div>`; roster.appendChild(li); });
+  s.rankings.forEach((p)=>{ const li=document.createElement('li'); li.innerHTML=`<div>#${p.rank} <strong>${p.name}</strong> <span class='small'>(${p.animal})</span> ${p.eliminated?'🪦':''}</div><div class='grid'>${arrowControls(p)}${scoreControls(p)}</div>`; roster.appendChild(li); });
+  const audioErr=byId('tvAudioError');
+  if(s.lastTvAudioError){ audioErr.style.display=''; audioErr.textContent=`⚠️ Audio TV: ${s.lastTvAudioError.reason} (${new Date(s.lastTvAudioError.at).toLocaleTimeString()})`; }
+  else { audioErr.style.display='none'; audioErr.textContent=''; }
+  renderResults(s);
+  const special=byId('specialControls');
+  if(special){
+    if(s.phase==='GAME_D'){
+      const awards=s.gameState?.awards||{};
+      const winners=s.gameState?.winners||[];
+      special.innerHTML=`<div class='panel'><h4 style='margin:.2rem 0 .6rem;'>Blind test — attribution des points</h4>${(s.rankings||[]).filter((p)=>!p.eliminated).map((p)=>{const a=awards[p.playerId]||{}; return `<div class='roster' style='margin-bottom:8px;'><li style='background:${(a.title||a.artist)?'rgba(42,178,84,.25)':'rgba(0,0,0,.3)'}'><div><button class='secondary' data-dfull='${p.playerId}' style='width:auto;padding:.45rem .7rem;'>${p.name} (+1)</button></div><div style='display:flex;gap:8px;'><button data-dtitle='${p.playerId}' class='secondary' style='width:auto;${a.title?'background:linear-gradient(180deg,#44b563,#2f8146);':''}'>🎵 Titre</button><button data-dartist='${p.playerId}' class='secondary' style='width:auto;${a.artist?'background:linear-gradient(180deg,#44b563,#2f8146);':''}'>🎤 Artiste</button></div></li></div>`;}).join('')}<div class='admin-actions mt'><button id='dNextSong'>Chanson suivante</button></div><p class='small'>${winners.length?`Attribution: ${winners.map((w)=>`${(s.rankings||[]).find((p)=>p.playerId===w.pid)?.name||w.pid} (${w.gained}pt)`).join(', ')}`:'Aucun point attribué pour le moment.'}</p></div>`;
+      special.querySelectorAll('[data-dfull]').forEach((b)=>b.addEventListener('click',()=>cmd('GAME_D_AWARD',{playerId:b.dataset.dfull,type:'FULL'})));
+      special.querySelectorAll('[data-dtitle]').forEach((b)=>b.addEventListener('click',()=>cmd('GAME_D_AWARD',{playerId:b.dataset.dtitle,type:'TITLE'})));
+      special.querySelectorAll('[data-dartist]').forEach((b)=>b.addEventListener('click',()=>cmd('GAME_D_AWARD',{playerId:b.dataset.dartist,type:'ARTIST'})));
+      byId('dNextSong')?.addEventListener('click',()=>cmd('GAME_D_NEXT_SONG'));
+    } else if(s.phase==='GAME_G'){
+
+      special.innerHTML=`<button id='gNext'>Phase suivante imposteur</button><button id='gDraw' class='secondary'>Joueur suivant</button><select id='gReveal'>${(s.rankings||[]).filter((p)=>!p.eliminated).map((p)=>`<option value='${p.playerId}'>${p.name}</option>`).join('')}</select><button id='gResult' class='danger'>Révéler résultat</button>`;
+      byId('gNext')?.addEventListener('click',()=>cmd('GAME_G_NEXT_STAGE'));
+      byId('gDraw')?.addEventListener('click',()=>cmd('GAME_G_DRAW_PLAYER'));
+      byId('gResult')?.addEventListener('click',()=>cmd('GAME_G_REVEAL_RESULT',{revealedPlayerId:byId('gReveal').value}));
+    } else if(s.phase==='GAME_H'){
+      special.innerHTML=`<button id='hReveal'>Révéler le totem maintenant</button>`;
+      byId('hReveal')?.addEventListener('click',()=>cmd('GAME_H_REVEAL'));
+    } else if(s.phase==='GAME_I'){
+      special.innerHTML=`<button id='iReveal' class='danger'>Révéler la porte</button>`;
+      byId('iReveal')?.addEventListener('click',()=>cmd('GAME_I_REVEAL'));
+    } else special.innerHTML='';
+  }
   roster.querySelectorAll('[data-score]').forEach((b)=>b.onclick=()=>cmd('UPDATE_SCORE',{playerId:b.dataset.p,delta:Number(b.dataset.score)}));
   roster.querySelectorAll('[data-click-point]').forEach((b)=>b.onclick=()=>cmd('UPDATE_SCORE',{playerId:b.dataset.clickPoint,delta:1}));
   roster.querySelectorAll('[data-restore-arrow]').forEach((b)=>b.onclick=()=>cmd('RESTORE_ARROW',{playerId:b.dataset.restoreArrow}));
   renderGameDAdmin(s); renderGameGAdmin(s); renderGameFAdmin(s); renderResults(s);
 }
-byId('gameBSeconds').innerHTML=Array.from({length:16},(_,i)=>15+i).map(v=>`<option value='${v}'>${v}</option>`).join('');
-byId('gamePicker').onchange=()=>{ selectedGame=byId('gamePicker').value; fillQuestionPicker(state||{}); renderGameInfo(); };
-byId('login').onclick=()=>socket.emit('admin:auth',{password:byId('pwd').value},(r)=>{if(!r?.ok)return alert('Mot de passe incorrect');byId('auth').style.display='none';byId('dash').style.display='';render(r.state);});
-byId('launchGame').onclick=()=>{ if(!selectedGame) return alert('Choisis un jeu'); cmd('LAUNCH_GAME',{game:selectedGame,questionIndex:Number(byId('questionPicker').value||0),count:Number(byId('gameBCount').value||1),seconds:Number(byId('gameBSeconds').value||20),manualItem:byId('gameCManualItem').value,manualPrice:Number(byId('gameCManualPrice').value||0)},(r)=>{if(!r?.ok) alert(r.error||'Launch impossible');}); };
+
+byId('gamePicker').onchange=()=>fillQuestionPicker(state||{});
+byId('gamePicker').onchange=()=>{fillQuestionPicker(state||{}); if(byId('gameBAdminConfig')) byId('gameBAdminConfig').style.display=byId('gamePicker').value==='GAME_B'?'':'none'; cmd('PREVIEW_GAME',{game:byId('gamePicker').value,questionIndex:Number(byId('questionPicker').value||0)});};
+byId('questionPicker').onchange=()=>cmd('PREVIEW_GAME',{game:byId('gamePicker').value,questionIndex:Number(byId('questionPicker').value||0)});
+byId('login').onclick=()=>socket.emit('admin:auth',{password:byId('pwd').value},(r)=>{if(!r?.ok)return alert('Mot de passe incorrect');byId('auth').style.display='none';byId('dash').style.display='';render(r.state); cmd('PREVIEW_GAME',{game:byId('gamePicker').value,questionIndex:Number(byId('questionPicker').value||0)});});
+byId('launchGame').onclick=()=>cmd('LAUNCH_GAME',{game:byId('gamePicker').value,questionIndex:Number(byId('questionPicker').value||0),count:Number(byId('gameBCount')?.value||1),seconds:Number(byId('gameBSeconds')?.value||20)},(r)=>{if(!r?.ok) alert(r.error||'Launch impossible');});
 byId('showResults').onclick=()=>cmd('SHOW_RESULTS',{},(r)=>{if(!r?.ok) alert(r.error||'Action impossible');});
 byId('toggleTvMute').onclick=()=>cmd('SET_TV_MUTED',{muted:!state?.tvMuted});
 byId('finishGame').onclick=()=>cmd('FINISH_GAME');

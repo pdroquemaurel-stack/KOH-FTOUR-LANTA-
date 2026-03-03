@@ -23,7 +23,7 @@
           </div>
         </div>
 
-        <button id="join">Rejoindre</button>
+        <button id="join" type="button">Rejoindre</button>
       </div>
     </section>
 
@@ -232,6 +232,8 @@
         byId('dArtist')?.addEventListener('input',(ev)=>{answerUiState.values.artist=ev.target.value; answerUiState.validated=false;});
         byId('s').onclick = () => send('D_BLIND', { title: byId('dTitle').value, artist: byId('dArtist').value }, (ok) => { if (ok) { answerUiState.values={title:byId('dTitle').value,artist:byId('dArtist').value}; answerUiState.validated=true; renderAction(); } });
       }
+      else if (phase === 'GAME_C') { const max=Math.max(0, Number(gs.maxPrice||0)); a.innerHTML = `<label for='g'>Ton prix: <strong id='gVal'>0 dh</strong></label><input id='g' type='range' min='0' max='${max}' step='1' value='0'/><button id='s'>Valider</button>`; const g=byId('g'); const gVal=byId('gVal'); g.oninput=()=>{gVal.textContent=`${g.value} dh`;}; byId('s').onclick = () => send('C_GUESS', { value: Number(g.value) }); }
+      else if (phase === 'GAME_D') { a.innerHTML = `<p>🎧 Blind test en cours. Attends l'attribution des points par l'admin.</p>`; }
       else if (phase === 'GAME_E') { a.innerHTML = `<div class='grid grid-2'><button id='sh'>Partager</button><button id='be' class='danger'>Trahir</button></div>`; byId('sh').onclick = () => send('E_CHOICE', { choice: 'SHARE' }); byId('be').onclick = () => send('E_CHOICE', { choice: 'BETRAY' }); }
       else if (phase === 'GAME_F') {
         const meState = (st.rankings || []).find((p) => p.playerId === me.playerId) || {};
@@ -278,19 +280,19 @@
       else { stopArcheryAnim(); a.innerHTML = '<p>En attente de la prochaine épreuve...</p>'; }
     }
 
-    byId('characterPrev').onclick = () => {
+    byId('characterPrev').addEventListener('click', () => {
       carouselIndex = normalizeIndex(carouselIndex - 1);
       selectedCharacter = CHARACTERS[carouselIndex].file;
       renderCharacterCarousel();
-    };
+    });
 
-    byId('characterNext').onclick = () => {
+    byId('characterNext').addEventListener('click', () => {
       carouselIndex = normalizeIndex(carouselIndex + 1);
       selectedCharacter = CHARACTERS[carouselIndex].file;
       renderCharacterCarousel();
-    };
+    });
 
-    byId('join').onclick = () => {
+    byId('join').addEventListener('click', () => {
       const s = load();
       const name = (byId('name').value || s?.name || '').trim();
       if (!name) return alert('Le pseudo est obligatoire.');
@@ -310,7 +312,7 @@
         joined(r.player);
         renderAction();
       });
-    };
+    });
 
     const s = load();
     if (s?.name) byId('name').value = s.name;
