@@ -18,7 +18,7 @@ body {
 body.join-page {
   background:
     linear-gradient(rgba(4,8,6,.58), rgba(4,8,6,.8)),
-    url('/Visuels/mobile-bg.png') center / cover no-repeat fixed;
+    image-set(url('/Visuels/mobile-bg.webp') type('image/webp'), url('/Visuels/mobile-bg.png') type('image/png')) center / cover no-repeat fixed;
 }
 
 .container { max-width: 1120px; margin: 0 auto; padding: 24px; }
@@ -131,7 +131,7 @@ button.secondary { background: linear-gradient(180deg, #6c7c66, #42503f); color:
 .tv-stage {
   background:
     linear-gradient(rgba(0,0,0,.42), rgba(0,0,0,.56)),
-    url('/Visuels/tv_background_main_1920x1080.png') center / cover no-repeat fixed;
+    image-set(url('/Visuels/tv_background_main_1920x1080.webp') type('image/webp'), url('/Visuels/tv_background_main_1920x1080.png') type('image/png')) center / cover no-repeat fixed;
 }
 .tv-layout {
   height: 100vh;
