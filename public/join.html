@@ -44,16 +44,16 @@
     let lastContextKey='';
 
     const CHARACTERS = [
-      { file: 'Visuels/joueur/Lion rouge sang.png', color: '#8A0303' },
-      { file: 'Visuels/joueur/serpent emeraude.png', color: '#50C878' },
-      { file: 'Visuels/joueur/Elephant violet.png', color: '#7F00FF' },
-      { file: 'Visuels/joueur/perroquet jaune.png', color: '#FFD300' },
-      { file: 'Visuels/joueur/loup noir.png', color: '#000000' },
-      { file: 'Visuels/joueur/panda bleu.png', color: '#1E3A8A' },
-      { file: 'Visuels/joueur/gorille vert.png', color: '#228B22' },
-      { file: 'Visuels/joueur/renard orange.png', color: '#FF6A00' },
-      { file: 'Visuels/joueur/tigre rouge.png', color: '#D62828' },
-      { file: 'Visuels/joueur/Sanglier marron.png', color: '#6B3E26' }
+      { file: 'Visuels/joueur/Lion rouge sang.webp', color: '#8A0303' },
+      { file: 'Visuels/joueur/serpent emeraude.webp', color: '#50C878' },
+      { file: 'Visuels/joueur/Elephant violet.webp', color: '#7F00FF' },
+      { file: 'Visuels/joueur/perroquet jaune.webp', color: '#FFD300' },
+      { file: 'Visuels/joueur/loup noir.webp', color: '#000000' },
+      { file: 'Visuels/joueur/panda bleu.webp', color: '#1E3A8A' },
+      { file: 'Visuels/joueur/gorille vert.webp', color: '#228B22' },
+      { file: 'Visuels/joueur/renard orange.webp', color: '#FF6A00' },
+      { file: 'Visuels/joueur/tigre rouge.webp', color: '#D62828' },
+      { file: 'Visuels/joueur/Sanglier marron.webp', color: '#6B3E26' }
     ];
 
     let carouselIndex = 0;
@@ -77,7 +77,7 @@
         const c = CHARACTERS[idx];
         const isCenter = offset === 0;
         const selectedClass = c.file === selectedCharacter ? ' selected' : '';
-        const characterLabel = c.file.split('/').pop().replace('.png', '');
+        const characterLabel = c.file.split('/').pop().replace(/\.(png|webp)$/i, '');
         return `
           <button
             type="button"
@@ -87,7 +87,7 @@
             aria-label="Sélectionner ${characterLabel}"
           >
             <div class="character-thumb">
-              <img src="/${encodeURI(c.file)}" alt="${characterLabel}" />
+              <img src="/${encodeURI(c.file)}" alt="${characterLabel}" loading="lazy" decoding="async" onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src=this.src.replace(/\.webp$/i,'.png');}" />
             </div>
           </button>
         `;
@@ -252,13 +252,13 @@
         if (typeof shot.vertical === 'number') archeryAnim.vertical = shot.vertical;
         if (typeof shot.horizontal === 'number' && typeof shot.vertical === 'number') {
           stopArcheryAnim();
-          a.innerHTML = `<div class='archery-mobile-wrap'><div class='archery-mobile-target'><img src='/Visuels/archery_target_mobile.png' alt='cible'/><img id='archeryMarker' class='archery-mobile-marker' src='/Visuels/archery_arrow_marker.png' alt='marqueur' style='left:${50 + (archeryAnim.horizontal / 2)}%;top:${50 - (archeryAnim.vertical / 2)}%'/></div><p class='small'>Tir validé ✅</p></div>${renderArrowsBottom(meState.arrows)}`;
+          a.innerHTML = `<div class='archery-mobile-wrap'><div class='archery-mobile-target'><img src='/Visuels/archery_target_mobile.webp' alt='cible' loading='lazy' decoding='async' onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src=this.src.replace(/\.webp$/i,'.png');}"/><img id='archeryMarker' class='archery-mobile-marker' src='/Visuels/archery_arrow_marker.png' alt='marqueur' style='left:${50 + (archeryAnim.horizontal / 2)}%;top:${50 - (archeryAnim.vertical / 2)}%'/></div><p class='small'>Tir validé ✅</p></div>${renderArrowsBottom(meState.arrows)}`;
           return;
         }
         if (typeof shot.horizontal === 'number') { archeryAnim.axis = 'V'; }
         else { archeryAnim.axis = 'H'; archeryAnim.vertical = 0; }
         archeryAnim.dir = 1;
-        a.innerHTML = `<div class='archery-mobile-wrap'><div class='archery-mobile-target'><img src='/Visuels/archery_target_mobile.png' alt='cible'/><img id='archeryMarker' class='archery-mobile-marker' src='/Visuels/archery_arrow_marker.png' alt='marqueur' style='left:${50 + (archeryAnim.horizontal / 2)}%;top:${50 - (archeryAnim.vertical / 2)}%'/></div><p id='archeryHint' class='small'>${archeryAnim.axis === 'H' ? 'Ajustement axe horizontal...' : 'Ajustement axe vertical...'}</p><button id='fireBtn'>Tirer</button></div>${renderArrowsBottom(meState.arrows)}`;
+        a.innerHTML = `<div class='archery-mobile-wrap'><div class='archery-mobile-target'><img src='/Visuels/archery_target_mobile.webp' alt='cible' loading='lazy' decoding='async' onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src=this.src.replace(/\.webp$/i,'.png');}"/><img id='archeryMarker' class='archery-mobile-marker' src='/Visuels/archery_arrow_marker.png' alt='marqueur' style='left:${50 + (archeryAnim.horizontal / 2)}%;top:${50 - (archeryAnim.vertical / 2)}%'/></div><p id='archeryHint' class='small'>${archeryAnim.axis === 'H' ? 'Ajustement axe horizontal...' : 'Ajustement axe vertical...'}</p><button id='fireBtn'>Tirer</button></div>${renderArrowsBottom(meState.arrows)}`;
         startArcheryAnim();
         byId('fireBtn').onclick = () => {
           if (archeryAnim.axis === 'H') {

@@ -99,7 +99,7 @@ function questionFor(s){
   if(s.phase==='GAME_D') return g.stage==='RESULT' ? 'Résultat du blind test' : '🎵 Blind test en cours';
   if(s.phase==='GAME_F') return 'Vise bien ou fais toi des amis';
   if(s.phase==='GAME_G'){ if(g.stage==='WORD_REVEAL') return `Les aventuriers prennent connaissance de leur destin… (${Object.keys(g.hasSeenWord||{}).length}/${(s.rankings||[]).filter((p)=>!p.eliminated).length})`; if(g.stage==='PASSAGES') return `🔥 C'est au tour de : ${ (s.rankings||[]).find((p)=>p.playerId===g.passageOrder?.[g.passageOrder.length-1])?.name || '...'}`; if(g.stage==='VOTE') return "QUI EST L'IMPOSTEUR ?"; return 'Révélation finale'; }
-  if(s.phase==='GAME_H') return g.stage==='REVEALED' ? 'apres-totem.png' : 'avant-totem.png';
+  if(s.phase==='GAME_H') return g.stage==='REVEALED' ? 'apres-totem.webp' : 'avant-totem.webp';
   if(s.phase==='GAME_I') return g.stage==='RESULT' ? `Porte gagnante: ${g.results?.winningDoor||g.winningDoor||'?'}` : 'Porte cachée: 1, 2 ou 3';
   if(s.phase==='FINAL') return g.question||'Question finale';
   if(s.phase==='END') return '🏆 LE SURVIVANT DU FTOUR';
@@ -143,7 +143,7 @@ function renderResults(s){
     const winner=r.winner?`<p><strong>🏆 Vainqueur: ${nameById[r.winner]||r.winner}</strong></p>`:'';
     const noShot=(r.noShot||[]).length?`<p>❌ Sans tir (perdent 1 flèche): ${(r.noShot||[]).map((pid)=>nameById[pid]||pid).join(', ')}</p>`:'';
     resultsBlock.classList.add('archery-results');
-    resultsBlock.innerHTML=`<h3>Résultats Tir à l'arc</h3><div class='archery-target'><img src='/Visuels/archery_target_board.png' alt='Cible'/>${shots}</div><p>🎯 Plus proche (participants): <strong>${closest}</strong></p><p>💥 Plus éloigné (participants): <strong>${farthest}</strong> (perd 1 flèche)</p>${noShot}${breakInfo}${winner}`;
+    resultsBlock.innerHTML=`<h3>Résultats Tir à l'arc</h3><div class='archery-target'><img src='/Visuels/archery_target_board.webp' alt='Cible' loading='lazy' decoding='async' onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src=this.src.replace(/\.webp$/i,'.png');}"/>${shots}</div><p>🎯 Plus proche (participants): <strong>${closest}</strong></p><p>💥 Plus éloigné (participants): <strong>${farthest}</strong> (perd 1 flèche)</p>${noShot}${breakInfo}${winner}`;
   } else if(r.game==='C') {
     const closest=r.closestUnder||[];
     const rows=(r.answers||[]).map((a)=>{
@@ -201,6 +201,6 @@ socket.on('game:state',(s)=>{
   startCountdown(s);
   renderResults(s);
   const answeredIds=(s.gameProgress?.answeredPlayerIds||s.gameAProgress?.answeredPlayerIds||[]);
-  scoreList.innerHTML=(s.rankings||[]).map(p=>`<li><span class='tv-player ${answeredIds.includes(p.playerId)?'answered':''}'><img class='tv-avatar' src='/${encodeURI(p.animal||'')}' alt='Avatar'/><span>${p.name} ${arrowsIcons(p)}</span></span><strong>${p.score}</strong></li>`).join('');
+  scoreList.innerHTML=(s.rankings||[]).map(p=>`<li><span class='tv-player ${answeredIds.includes(p.playerId)?'answered':''}'><img class='tv-avatar' src='/${encodeURI(String(p.animal||'').replace(/\.png$/i,'.webp'))}' alt='Avatar' loading='lazy' decoding='async' onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src=this.src.replace(/\.webp$/i,'.png');}"/><span>${p.name} ${arrowsIcons(p)}</span></span><strong>${p.score}</strong></li>`).join('');
 });
 </script></body></html>
