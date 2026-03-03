@@ -40,7 +40,8 @@
     const socket = io({ transports: ['websocket', 'polling'] });
     const KEY = 'kla_singleton_player_v2';
     let me = null, st = null;
-    let gameBUiState = { questionKey: '', value: '', validated: false };
+    let answerUiState = { key: '', values: {}, validated: false };
+    let lastContextKey='';
 
     const CHARACTERS = [
       { file: 'Visuels/joueur/Lion rouge sang.png', color: '#8A0303' },
@@ -110,13 +111,14 @@
       byId('mobileTitle').textContent = `🌴 ${p.name}`;
     }
 
-    function send(type, payload) {
+    function send(type, payload, done) {
       socket.emit('game:action', { type, payload }, (r) => {
         const ack = byId('ack');
-        if (r?.ok) { ack.classList.remove('error-msg'); ack.textContent = '✅ Réponse envoyée'; return; }
+        if (r?.ok) { ack.classList.remove('error-msg'); ack.textContent = '✅ Réponse envoyée'; done&&done(true); return; }
         if (r?.error === 'NO_SELF_VOTE') { ack.classList.add('error-msg'); ack.textContent = "t'es idiot ou tu veux perdre des points ?"; return; }
         if (r?.error === 'NO_ARROWS_LEFT') { ack.classList.add('error-msg'); ack.textContent = "❌ Tu n'as plus de flèche, tu ne peux plus jouer."; return; }
         ack.classList.add('error-msg'); ack.textContent = `❌ ${r?.error || 'Erreur'}`;
+        done&&done(false);
       });
     }
 
@@ -168,6 +170,11 @@
       archeryAnim.raf = requestAnimationFrame(tick);
     }
 
+
+    function resetAnswerState(newKey) {
+      if (answerUiState.key !== newKey) answerUiState = { key: newKey, values: {}, validated: false };
+    }
+
     function renderArrowsBottom(arrows) {
       const total = 2;
       const intact = Math.max(0, Math.min(total, Number(arrows ?? 2)));
@@ -181,64 +188,50 @@
       byId('phase').textContent = phase === 'GAME_F' ? '' : `Phase: ${phase}`;
       const a = byId('action');
       const gs = st.gameState || {};
+      const ctx=`${phase}|${gs.currentIndex||''}|${gs.prompt||gs.question||gs.item||gs.theme||''}`;
+      const sameContext = ctx===lastContextKey;
+      if(!sameContext){ byId('ack').textContent=''; byId('ack').classList.remove('error-msg'); lastContextKey=ctx; }
+      const active = document.activeElement;
+      const typingInsideAction = active && active.tagName==='INPUT' && a.contains(active);
+      if (sameContext && typingInsideAction && !st.resultsShown) {
+        return;
+      }
       document.body.classList.toggle('archery-active', phase === 'GAME_F');
-      if (phase !== 'GAME_B') gameBUiState = { questionKey: '', value: '', validated: false };
-      if (st.resultsShown) { a.innerHTML = '<p>Résultats affichés: réponses fermées.</p>'; return; }
+      if (!['GAME_B','GAME_C','GAME_D','FINAL'].includes(phase)) answerUiState = { key: '', values: {}, validated: false };
+      if (st.resultsShown) {
+        if (phase === 'GAME_F' && gs.results?.winner === me.playerId && Number(gs.results?.winnerBonus||0) > 0) { a.innerHTML = `<p class='plus'>🏆 Tu es le dernier avec des flèches : +${gs.results.winnerBonus} points</p>`; return; }
+        a.innerHTML = '<p>Résultats affichés: réponses fermées.</p>'; return; }
       if (phase === 'GAME_A') { a.innerHTML = `<select id='t'>${playerList()}</select><button id='s'>Voter</button>`; byId('s').onclick = () => send('A_VOTE', { targetPlayerId: byId('t').value }); }
-      else if (phase === 'GAME_G') {
-        const seen = !!gs.hasSeenWord?.[me.playerId];
-        if (gs.stage === 'WORD_REVEAL') {
-          a.innerHTML = `<p>${seen ? '✅ Mot confirmé' : 'Clique pour révéler ton mot'}</p><button id='revealWord'>RÉVÉLER MON MOT</button><div id='wordBox' class='panel mt'></div><button id='seenWord' class='secondary mt' ${seen?'disabled':''}>J'ai pris connaissance de mon mot</button>`;
-          byId('revealWord').onclick = () => {
-            socket.emit('game:action', { type: 'G_FETCH_WORD', payload: {} }, (r) => {
-              const box = byId('wordBox');
-              if (!r?.ok) { box.innerHTML = `<div class='error-msg'>${r?.error || 'Erreur'}</div>`; return; }
-              box.innerHTML = r.isImpostor ? `<div class='error-msg'>IMPOSTEUR</div>` : `<strong>${r.word || 'Mot secret'}</strong>`;
-            });
-          };
-          byId('seenWord').onclick = () => send('G_CONFIRM_WORD', {});
-        } else if (gs.stage === 'VOTE') {
-          a.innerHTML = `<select id='gv'>${playerList()}</select><button id='gvs'>Voter imposteur</button>`;
-          byId('gvs').onclick = () => send('G_VOTE', { targetPlayerId: byId('gv').value });
-        } else {
-          a.innerHTML = '<p>Attente de la suite (imposteur)...</p>';
-        }
-      }
-      else if (phase === 'GAME_H') {
-        const clicked = !!gs.clickedAt?.[me.playerId];
-        a.innerHTML = `<p>${gs.stage === 'REVEALED' ? '🔥 TOTEM APPARU !' : 'Prépare-toi...'}</p><button id='grabTotem' ${gs.stage === 'REVEALED' && !clicked ? '' : 'disabled'}>ATTRAPER LE TOTEM</button>`;
-        byId('grabTotem').onclick = () => send('H_GRAB_TOTEM', {});
-      }
-      else if (phase === 'GAME_I') {
-        const picked = gs.doorChoices?.[me.playerId];
-        a.innerHTML = `<p>Choisis une porte</p><div class='grid grid-3'><button data-door='1' ${picked?'disabled':''}>Porte 1</button><button data-door='2' ${picked?'disabled':''}>Porte 2</button><button data-door='3' ${picked?'disabled':''}>Porte 3</button></div>`;
-        a.querySelectorAll('[data-door]').forEach((b)=>b.onclick=()=>send('I_PICK_DOOR',{door:Number(b.dataset.door)}));
-      }
       else if (phase === 'GAME_B') {
-        const qKey = `${gs.currentIndex ?? -1}|${gs.questions?.[gs.currentIndex]?.prompt || ''}`;
-        if (gameBUiState.questionKey !== qKey) gameBUiState = { questionKey: qKey, value: '', validated: false };
-        a.innerHTML = `<input id='ans' class='${gameBUiState.validated ? 'answer-validated' : ''}' placeholder='Ta réponse' value="${(gameBUiState.value || '').replace(/"/g,'&quot;')}"/><button id='s'>Envoyer</button><p class='small'>${gameBUiState.validated ? '✅ Réponse validée' : ''}</p>`;
-        const ansEl = byId('ans');
-        ansEl?.addEventListener('input', () => { gameBUiState.value = ansEl.value; gameBUiState.validated = false; ansEl.classList.remove('answer-validated'); });
-        byId('s').onclick = () => {
-          const answer = byId('ans').value;
-          socket.emit('game:action', { type: 'B_ANSWER', payload: { answer } }, (r) => {
-            const ack = byId('ack');
-            if (r?.ok) {
-              gameBUiState.value = answer;
-              gameBUiState.validated = true;
-              ack.classList.remove('error-msg');
-              ack.textContent = '✅ Réponse envoyée';
-              renderAction();
-              return;
-            }
-            ack.classList.add('error-msg');
-            ack.textContent = `❌ ${r?.error || 'Erreur'}`;
-          });
-        };
+        const k = `B|${gs.currentIndex ?? -1}|${gs.questions?.[gs.currentIndex]?.prompt || ''}`;
+        resetAnswerState(k);
+        const v = answerUiState.values.ans || '';
+        a.innerHTML = `<input id='ans' class='${answerUiState.validated ? 'answer-validated' : ''}' placeholder='Ta réponse' value="${String(v).replace(/"/g,'&quot;')}"/><button id='s'>Valider</button><p class='small'>${answerUiState.validated ? '✅ Réponse validée' : ''}</p>`;
+        byId('ans')?.addEventListener('input', (ev) => { answerUiState.values.ans = ev.target.value; answerUiState.validated = false; ev.target.classList.remove('answer-validated'); const sm=a.querySelector('.small'); if(sm) sm.textContent=''; });
+        byId('s').onclick = () => send('B_ANSWER', { answer: byId('ans').value }, (ok) => { if (ok) { answerUiState.values.ans = byId('ans').value; answerUiState.validated = true; renderAction(); } });
       }
-      else if (phase === 'GAME_C') { const max=Math.max(0, Number(gs.maxPrice||0)); a.innerHTML = `<label for='g'>Ton prix: <strong id='gVal'>0 dh</strong></label><input id='g' type='range' min='0' max='${max}' step='1' value='0'/><button id='s'>Valider</button>`; const g=byId('g'); const gVal=byId('gVal'); g.oninput=()=>{gVal.textContent=`${g.value} dh`;}; byId('s').onclick = () => send('C_GUESS', { value: Number(g.value) }); }
-      else if (phase === 'GAME_D') { a.innerHTML = `<p>🎧 Blind test en cours. Attends l'attribution des points par l'admin.</p>`; }
+      else if (phase === 'GAME_C') {
+        const k = `C|${gs.item || ''}|${gs.realPrice || 0}`;
+        resetAnswerState(k);
+        const current = Number(answerUiState.values.g ?? gs.realPrice ?? 100);
+        const real = Math.max(1, Number(gs.realPrice||100));
+        const min = Math.max(1, Math.round(real * 0.05));
+        const max = Math.max(min + 10, Math.round(real * 5));
+        a.innerHTML = `<label class='small'>Ton prix en dirham après négo et énervement</label><input id='gSlider' type='range' min='${min}' max='${max}' value='${current}'/><input id='g' class='${answerUiState.validated ? 'answer-validated' : ''}' type='number' min='${min}' max='${max}' value='${current}'/><button id='s'>Valider</button><p class='small'>${answerUiState.validated ? '✅ Réponse validée' : ''}</p>`;
+        const sync = (val)=>{ answerUiState.values.g = Number(val||0); answerUiState.validated=false; const g=byId('g'); const sl=byId('gSlider'); if(g) g.value=String(answerUiState.values.g); if(sl) sl.value=String(answerUiState.values.g); };
+        byId('gSlider')?.addEventListener('input',(ev)=>sync(ev.target.value));
+        byId('g')?.addEventListener('input',(ev)=>sync(ev.target.value));
+        byId('s').onclick = () => send('C_GUESS', { value: Number(byId('g').value) }, (ok) => { if (ok) { answerUiState.values.g = Number(byId('g').value); answerUiState.validated = true; renderAction(); } });
+      }
+      else if (phase === 'GAME_D') {
+        const k = `D|${gs.prompt || ''}|${gs.index || 0}`;
+        resetAnswerState(k);
+        const title = answerUiState.values.title || '', artist = answerUiState.values.artist || '';
+        a.innerHTML = `<p class='small'>Blind test : trouve le titre et l'artiste</p><input id='dTitle' class='${answerUiState.validated ? 'answer-validated' : ''}' placeholder='Titre' value="${String(title).replace(/"/g,'&quot;')}"/><input id='dArtist' class='${answerUiState.validated ? 'answer-validated' : ''}' placeholder='Artiste' value="${String(artist).replace(/"/g,'&quot;')}"/><button id='s'>Valider</button><p class='small'>${answerUiState.validated ? '✅ Réponse validée' : ''}</p>`;
+        byId('dTitle')?.addEventListener('input',(ev)=>{answerUiState.values.title=ev.target.value; answerUiState.validated=false;});
+        byId('dArtist')?.addEventListener('input',(ev)=>{answerUiState.values.artist=ev.target.value; answerUiState.validated=false;});
+        byId('s').onclick = () => send('D_BLIND', { title: byId('dTitle').value, artist: byId('dArtist').value }, (ok) => { if (ok) { answerUiState.values={title:byId('dTitle').value,artist:byId('dArtist').value}; answerUiState.validated=true; renderAction(); } });
+      }
       else if (phase === 'GAME_E') { a.innerHTML = `<div class='grid grid-2'><button id='sh'>Partager</button><button id='be' class='danger'>Trahir</button></div>`; byId('sh').onclick = () => send('E_CHOICE', { choice: 'SHARE' }); byId('be').onclick = () => send('E_CHOICE', { choice: 'BETRAY' }); }
       else if (phase === 'GAME_F') {
         const meState = (st.rankings || []).find((p) => p.playerId === me.playerId) || {};
@@ -279,9 +272,9 @@
           }
         };
       }
+      else if (phase === 'GAME_G') { a.innerHTML = '<p>En attente de l'annonce admin...</p>'; }
       else if (phase === 'COUNCIL') { a.innerHTML = `<select id='v'>${playerList()}</select><button id='s'>Voter secret</button>`; byId('s').onclick = () => send('COUNCIL_VOTE', { targetPlayerId: byId('v').value }); }
-      else if (phase === 'FINAL') { const finalist = (gs.finalists || []).includes(me.playerId); if (!finalist) { a.innerHTML = '<p>Tu n\'es pas finaliste.</p>'; return; } a.innerHTML = `<input id='bet' type='number' min='0' max='5' placeholder='Mise 0-5'/><input id='ans' placeholder='Réponse finale'/><button id='s'>Envoyer finale</button>`; byId('s').onclick = () => send('FINAL_BET_ANSWER', { bet: Number(byId('bet').value), answer: byId('ans').value }); }
-      else if (phase === 'END') { const rows=(st.gameState?.finalRanking||st.rankings||[]).map((p)=>`<li ${p.playerId===me.playerId?'style="font-weight:700"':''}>#${p.rank} ${p.name} — ${p.score} pts</li>`).join(''); a.innerHTML = `<h3>Classement final</h3><ol>${rows}</ol>`; }
+      else if (phase === 'FINAL') { const finalist = (gs.finalists || []).includes(me.playerId); if (!finalist) { a.innerHTML = '<p>Tu n\'es pas finaliste.</p>'; return; } const k=`FINAL|${gs.question||''}`; resetAnswerState(k); const bet=answerUiState.values.bet??0; const ans=answerUiState.values.ans||''; a.innerHTML = `<input id='bet' class='${answerUiState.validated ? 'answer-validated' : ''}' type='number' min='0' max='5' placeholder='Mise 0-5' value='${bet}'/><input id='ans' class='${answerUiState.validated ? 'answer-validated' : ''}' placeholder='Réponse finale' value="${String(ans).replace(/"/g,'&quot;')}"/><button id='s'>Valider</button><p class='small'>${answerUiState.validated ? '✅ Réponse validée' : ''}</p>`; byId('bet')?.addEventListener('input',(ev)=>{answerUiState.values.bet=Number(ev.target.value||0);answerUiState.validated=false;}); byId('ans')?.addEventListener('input',(ev)=>{answerUiState.values.ans=ev.target.value;answerUiState.validated=false;}); byId('s').onclick = () => send('FINAL_BET_ANSWER', { bet: Number(byId('bet').value), answer: byId('ans').value }, (ok) => { if (ok) { answerUiState.values={bet:Number(byId('bet').value),ans:byId('ans').value}; answerUiState.validated=true; renderAction(); } }); }
       else { stopArcheryAnim(); a.innerHTML = '<p>En attente de la prochaine épreuve...</p>'; }
     }
 
