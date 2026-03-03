@@ -14,6 +14,7 @@
 <script src="/socket.io/socket.io.js"></script><script>
 const socket=io({transports:['websocket','polling']});
 const bigQuestion=document.getElementById('bigQuestion');
+const gameBQuestionIndex=document.getElementById('gameBQuestionIndex');
 const bigRule=document.getElementById('bigRule');
 const questionSeriesInfo=document.getElementById('questionSeriesInfo');
 const scoreList=document.getElementById('scoreList');

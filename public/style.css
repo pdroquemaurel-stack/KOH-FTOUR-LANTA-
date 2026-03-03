@@ -195,6 +195,17 @@ button.secondary { background: linear-gradient(180deg, #6c7c66, #42503f); color:
 .tv-avatar-cross{position:absolute;inset:0;display:grid;place-items:center;color:#ff2d2d;font-weight:900;text-shadow:0 0 6px #000;}
 .no-arrows{color:#ff6b6b !important;}
 
+.tv-player { display:flex; align-items:center; gap:8px; min-width:0; }
+.tv-avatar { width: 34px; height: 34px; object-fit: cover; border-radius: 50%; border:1px solid rgba(255,255,255,.35); background: rgba(0,0,0,.35); }
+.tv-gameb-index { position: fixed; top: min(380px, 34vh); left: 50%; transform: translateX(-50%); font-size: clamp(1rem, 1.8vw, 1.5rem); font-weight: 900; color: #ffdb9b; text-shadow: 0 3px 12px rgba(0,0,0,.85); z-index: 4; }
+.price-list { list-style:none; margin:0; padding:0; display:grid; gap:6px; font-size: clamp(.9rem, 1.6vw, 1.2rem); }
+.price-row { display:flex; justify-content:space-between; gap:12px; padding:6px 10px; border-radius:8px; background: rgba(0,0,0,.25); }
+.price-row.over { color:#ff8b8b; }
+.price-row.under-best { color:#70df92; font-weight:700; }
+.price-row.price-ref { border:1px solid rgba(255,216,157,.7); color:#ffd89d; font-weight:700; }
+.blind-winner { font-size: clamp(1.1rem, 2.6vw, 2.1rem); color:#71e294; font-weight:900; margin:6px 0; }
+.blind-winner span { margin-left:8px; }
+
 
 button.danger { background: linear-gradient(180deg, #f07a7a, #b03232); color: #fff3f3; }
 .admin-actions { display:grid; gap:10px; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); }

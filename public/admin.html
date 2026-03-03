@@ -40,7 +40,7 @@
       <button id="launchGame">Lancer le jeu sélectionné</button>
       <button id="showResults" class="secondary">Montrer les résultats</button>
       <button id="toggleTvMute" class="secondary">TV: Muet</button>
-      <button id="resetGame" class="danger">Réinitialiser le jeu</button>
+      <button id="finishGame" class="secondary">Terminer le jeu</button><button id="resetGame" class="danger">Réinitialiser le jeu</button>
     </div>
   </div>
 
@@ -110,6 +110,7 @@ byId('login').onclick=()=>socket.emit('admin:auth',{password:byId('pwd').value},
 byId('launchGame').onclick=()=>{ if(!selectedGame) return alert('Choisis un jeu'); cmd('LAUNCH_GAME',{game:selectedGame,questionIndex:Number(byId('questionPicker').value||0),count:Number(byId('gameBCount').value||1),seconds:Number(byId('gameBSeconds').value||20),manualItem:byId('gameCManualItem').value,manualPrice:Number(byId('gameCManualPrice').value||0)},(r)=>{if(!r?.ok) alert(r.error||'Launch impossible');}); };
 byId('showResults').onclick=()=>cmd('SHOW_RESULTS',{},(r)=>{if(!r?.ok) alert(r.error||'Action impossible');});
 byId('toggleTvMute').onclick=()=>cmd('SET_TV_MUTED',{muted:!state?.tvMuted});
+byId('finishGame').onclick=()=>cmd('FINISH_GAME');
 byId('resetGame').onclick=()=>{ if(confirm('Réinitialiser toute la partie ?')) cmd('RESET_GAME'); };
 byId('gameDStartBtn').onclick=()=>cmd('GAME_D_START');
 byId('gameDNextSongBtn').onclick=()=>cmd('GAME_D_NEXT_SONG');

@@ -38,7 +38,7 @@ function buildGameCatalog() {
   };
 }
 
-const FLOW = ['LOBBY', 'INTRO', 'GAME_A', 'RESULTS_A', 'GAME_B', 'RESULTS_B', 'GAME_C', 'RESULTS_C', 'GAME_D', 'RESULTS_D', 'GAME_E', 'RESULTS_E', 'COUNCIL', 'COUNCIL_RESULT', 'FINAL', 'FINAL_RESULT', 'END'];
+const FLOW = ['LOBBY', 'INTRO', 'GAME_A', 'RESULTS_A', 'GAME_B', 'RESULTS_B', 'GAME_C', 'RESULTS_C', 'GAME_D', 'RESULTS_D', 'GAME_E', 'RESULTS_E', 'GAME_G', 'GAME_H', 'GAME_I', 'COUNCIL', 'COUNCIL_RESULT', 'FINAL', 'FINAL_RESULT', 'END'];
 const TV_SCREENS = ['LOBBY', 'WAITING', 'PLACEHOLDER'];
 
 const SESSION = {
@@ -88,7 +88,7 @@ function now() { return Date.now(); }
 function nowIso() { return new Date().toISOString(); }
 function norm(s) { return String(s || '').trim().toLowerCase(); }
 function safeName(v) { return String(v || '').trim().slice(0, 24) || 'Aventurier'; }
-function safeAnimal(v) { return String(v || '').trim().slice(0, 24) || 'Tigre'; }
+function safeAnimal(v) { return String(v || '').trim().slice(0, 160) || 'Tigre'; }
 function touch() { SESSION.updatedAt = nowIso(); }
 function phaseAllowsActions() { return SESSION.started && !SESSION.paused && !SESSION.answerLocked; }
 function activePlayers() { return [...SESSION.players.values()].filter((p) => !p.eliminated); }
@@ -155,6 +155,9 @@ function rankPlayers() {
 }
 
 function buildState() {
+  const publicGameState = JSON.parse(JSON.stringify(SESSION.gameState || {}));
+  delete publicGameState.impostorIds;
+  if (SESSION.phase === 'GAME_C' && !SESSION.resultsShown) delete publicGameState.realPrice;
   return {
     sessionId: SESSION.id,
     createdAt: SESSION.createdAt,
@@ -174,7 +177,7 @@ function buildState() {
     finaleTop: SESSION.finaleTop,
     playerCount: SESSION.players.size,
     rankings: rankPlayers(),
-    gameState: SESSION.gameState,
+    gameState: publicGameState,
     gameAProgress: gameProgress(),
     gameProgress: gameProgress(),
     history: SESSION.history.slice(-10),
@@ -450,18 +453,26 @@ function resolveGameC() {
   const real = Number(SESSION.gameState.realPrice);
   const list = Object.entries(SESSION.gameState.answers).map(([pid, v]) => ({ pid, value: Number(v) }));
   const valid = list.filter((x) => !Number.isNaN(x.value));
-  valid.sort((a, b) => Math.abs(a.value - real) - Math.abs(b.value - real));
-  const first = valid[0]?.pid;
-  const second = valid[1]?.pid;
-  valid.forEach((x) => {
-    const p = SESSION.players.get(x.pid);
-    if (!p) return;
-    ensurePlayerScore(p);
-    if (SESSION.gameState.withoutOver && x.value > real) p.score -= 1;
-  });
-  if (first && SESSION.players.get(first)) SESSION.players.get(first).score += 3;
-  if (second && SESSION.players.get(second)) SESSION.players.get(second).score += 1;
-  const payload = { game: 'C', real, first, second, answers: valid };
+  const sortedDesc = [...valid].sort((a, b) => b.value - a.value);
+  const underOrEqual = [...valid].filter((x) => x.value <= real).sort((a, b) => (real - a.value) - (real - b.value));
+  const first = underOrEqual[0]?.pid || null;
+  const second = underOrEqual[1]?.pid || null;
+  if (first && SESSION.players.get(first)) {
+    ensurePlayerScore(SESSION.players.get(first));
+    SESSION.players.get(first).score += 2;
+  }
+  if (second && SESSION.players.get(second)) {
+    ensurePlayerScore(SESSION.players.get(second));
+    SESSION.players.get(second).score += 1;
+  }
+  const payload = {
+    game: 'C',
+    real,
+    first,
+    second,
+    answers: sortedDesc,
+    closestUnder: underOrEqual.map((x) => x.pid).slice(0, 2)
+  };
   SESSION.gameState.results = payload;
   SESSION.history.push({ at: nowIso(), game: 'C', real, first, second });
   publishResults(payload);
@@ -598,6 +609,70 @@ function resolveFinal() {
   publishResults(payload);
 }
 
+function resolveGameG(revealedPlayerId) {
+  const g = SESSION.gameState || {};
+  const impostorIds = Array.isArray(g.impostorIds) ? g.impostorIds : [];
+  const chosen = String(revealedPlayerId || '');
+  const targetIsImpostor = impostorIds.includes(chosen);
+  const impacts = {};
+  for (const p of SESSION.players.values()) {
+    ensurePlayerScore(p);
+    let delta = 0;
+    if (targetIsImpostor) {
+      if (!impostorIds.includes(p.playerId)) delta = 1;
+    } else if (impostorIds.includes(p.playerId)) delta = 2;
+    p.score += delta;
+    impacts[p.playerId] = delta;
+  }
+  const payload = { game: 'G', impostorIds, revealedPlayerId: chosen, targetIsImpostor, impacts };
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), game: 'G', impostorIds, revealedPlayerId: chosen, targetIsImpostor });
+  publishResults(payload);
+}
+
+function resolveGameH() {
+  const g = SESSION.gameState || {};
+  const revealAt = Number(g.revealAt || now());
+  const entries = Object.entries(g.clickedAt || {})
+    .map(([pid, ts]) => ({ pid, ts: Number(ts), deltaMs: Math.max(0, Number(ts) - revealAt) }))
+    .sort((a, b) => a.deltaMs - b.deltaMs);
+  const points = [3, 2, 1];
+  const impacts = {};
+  entries.forEach((entry, idx) => {
+    const p = SESSION.players.get(entry.pid);
+    if (!p) return;
+    ensurePlayerScore(p);
+    const delta = points[idx] || 0;
+    p.score += delta;
+    impacts[entry.pid] = delta;
+  });
+  const payload = { game: 'H', entries, impacts, top5: entries.slice(0, 5) };
+  SESSION.gameState.ranking = entries;
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), game: 'H', entries: entries.slice(0, 5) });
+  publishResults(payload);
+}
+
+function resolveGameI() {
+  const g = SESSION.gameState || {};
+  const winningDoor = Number.isInteger(g.winningDoor) ? g.winningDoor : (1 + Math.floor(Math.random() * 3));
+  g.winningDoor = winningDoor;
+  const impacts = {};
+  for (const [pid, door] of Object.entries(g.doorChoices || {})) {
+    const p = SESSION.players.get(pid);
+    if (!p) continue;
+    ensurePlayerScore(p);
+    const delta = Number(door) === winningDoor ? 5 : 0;
+    p.score += delta;
+    impacts[pid] = delta;
+  }
+  const payload = { game: 'I', winningDoor, choices: g.doorChoices || {}, impacts };
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), game: 'I', winningDoor });
+  publishResults(payload);
+}
+
+
 function sendJson(res, status, payload) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(payload));
@@ -658,6 +733,9 @@ io.on('connection', (socket) => {
       if (SESSION.phase === 'GAME_C') resolveGameC();
       if (SESSION.phase === 'GAME_D') resolveGameD();
       if (SESSION.phase === 'GAME_E') resolveGameERound();
+      if (SESSION.phase === 'GAME_G') resolveGameG();
+      if (SESSION.phase === 'GAME_H') resolveGameH();
+      if (SESSION.phase === 'GAME_I') resolveGameI();
       if (SESSION.phase === 'COUNCIL') resolveCouncil();
       if (SESSION.phase === 'FINAL') resolveFinal();
       nextPhase(); initPhaseState(SESSION.phase);
@@ -671,6 +749,9 @@ io.on('connection', (socket) => {
         if (SESSION.phase === 'GAME_C') resolveGameC();
         if (SESSION.phase === 'GAME_D') resolveGameD();
         if (SESSION.phase === 'GAME_E') resolveGameERound();
+        if (SESSION.phase === 'GAME_G') resolveGameG();
+        if (SESSION.phase === 'GAME_H') resolveGameH();
+        if (SESSION.phase === 'GAME_I') resolveGameI();
       }
       if (SESSION.phase === 'COUNCIL') resolveCouncil();
       if (SESSION.phase === 'FINAL') resolveFinal();
@@ -680,11 +761,19 @@ io.on('connection', (socket) => {
     else if (command === 'SET_IMMUNITY') { SESSION.immunityPlayerId = payload?.playerId || null; }
     else if (command === 'SET_COUNCIL_MODE') { SESSION.councilMode = payload?.mode === 'PENALTY' ? 'PENALTY' : 'ELIMINATION'; }
     else if (command === 'TV_SCREEN') { if (TV_SCREENS.includes(payload?.screen)) SESSION.phase = payload.screen; }
+    else if (command === 'PREVIEW_GAME') {
+      const game = String(payload?.game || 'GAME_A');
+      const questionIndex = Math.max(0, Number(payload?.questionIndex || 0));
+      SESSION.previewGame = { game, questionIndex };
+      setPhase('WAITING');
+      SESSION.gameState = { key: 'PREVIEW', game, questionIndex };
+    }
     else if (command === 'LAUNCH_GAME') {
       const game = String(payload?.game || 'GAME_A');
       const allowedGames = ['GAME_A', 'GAME_B', 'GAME_C', 'GAME_D', 'GAME_F', 'GAME_G'];
       if (!allowedGames.includes(game)) return ack?.({ ok: false, error: 'UNSUPPORTED_GAME' });
       SESSION.started = true;
+      SESSION.previewGame = { game, questionIndex: Number(payload?.questionIndex || 0) };
       setPhase(game);
       initPhaseState(game, {
         index: Number(payload?.questionIndex || 0),
@@ -854,6 +943,29 @@ io.on('connection', (socket) => {
       const target = payload?.targetPlayerId || '';
       if (target === pid) return ack?.({ ok: false, error: 'NO_SELF_VOTE' });
       SESSION.gameState.answers[pid] = target;
+    } else if (SESSION.phase === 'GAME_G' && type === 'G_FETCH_WORD') {
+      if (SESSION.gameState.stage !== 'WORD_REVEAL') return ack?.({ ok: false, error: 'INVALID_STAGE' });
+      const isImpostor = (SESSION.gameState.impostorIds || []).includes(pid);
+      return ack?.({ ok: true, isImpostor, word: SESSION.gameState.word || '' });
+    } else if (SESSION.phase === 'GAME_G' && type === 'G_CONFIRM_WORD') {
+      if (SESSION.gameState.stage !== 'WORD_REVEAL') return ack?.({ ok: false, error: 'INVALID_STAGE' });
+      SESSION.gameState.hasSeenWord[pid] = true;
+    } else if (SESSION.phase === 'GAME_G' && type === 'G_VOTE') {
+      if (SESSION.gameState.stage !== 'VOTE') return ack?.({ ok: false, error: 'INVALID_STAGE' });
+      if (SESSION.gameState.votes[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
+      const target = String(payload?.targetPlayerId || '');
+      if (!SESSION.players.has(target)) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
+      SESSION.gameState.votes[pid] = target;
+    } else if (SESSION.phase === 'GAME_H' && type === 'H_GRAB_TOTEM') {
+      if (SESSION.gameState.stage !== 'REVEALED') return ack?.({ ok: false, error: 'TOO_EARLY' });
+      if (SESSION.gameState.clickedAt[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
+      SESSION.gameState.clickedAt[pid] = now();
+    } else if (SESSION.phase === 'GAME_I' && type === 'I_PICK_DOOR') {
+      if (SESSION.gameState.stage !== 'CHOOSING') return ack?.({ ok: false, error: 'INVALID_STAGE' });
+      if (SESSION.gameState.doorChoices[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
+      const door = Number(payload?.door);
+      if (![1,2,3].includes(door)) return ack?.({ ok: false, error: 'INVALID_DOOR' });
+      SESSION.gameState.doorChoices[pid] = door;
     } else if (SESSION.phase === 'GAME_B' && type === 'B_ANSWER') {
       const g = SESSION.gameState || {};
       if (g.stage !== 'QUESTION') return ack?.({ ok: false, error: 'PHASE_LOCKED' });

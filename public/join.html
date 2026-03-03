@@ -122,6 +122,13 @@
       });
     }
 
+
+    function clearAck() {
+      const ack = byId('ack');
+      ack.classList.remove('error-msg');
+      ack.textContent = '';
+    }
+
     function playerList() {
       return (st?.rankings || [])
         .filter((p) => !p.eliminated)
@@ -317,7 +324,7 @@
       socket.emit('room:join', s, (r) => { if (r?.ok) { joined(r.player); } });
     }
 
-    socket.on('game:state', (s0) => { st = s0; updateScore(); renderAction(); });
+    socket.on('game:state', (s0) => { const prevPhase=st?.phase; const prevQuestion=st?.gameState?.currentIndex; st = s0; if(prevPhase!==s0.phase || (s0.phase==='GAME_B' && prevQuestion!==s0.gameState?.currentIndex)){ clearAck(); } updateScore(); renderAction(); });
     socket.on('game:reset', () => { stopArcheryAnim(); document.body.classList.remove('archery-active'); localStorage.removeItem(KEY); location.reload(); });
   </script>
 </body>
