@@ -42,7 +42,7 @@
     let me = null, st = null;
     let answerUiState = { key: '', values: {}, validated: false };
     let lastContextKey='';
-    let gameAVoteSelection = '';
+    let gameAVoteConfirmedTargetId = '';
 
     const CHARACTERS = [
       { file: 'Visuels/joueur/Lion rouge sang.webp', color: '#8A0303' },
@@ -116,7 +116,7 @@
       socket.emit('game:action', { type, payload }, (r) => {
         const ack = byId('ack');
         if (r?.ok) { ack.classList.remove('error-msg'); ack.textContent = '✅ Réponse envoyée'; done&&done(true); return; }
-        if (r?.error === 'NO_SELF_VOTE') { ack.classList.add('error-msg'); ack.textContent = "t'es idiot ou tu veux perdre des points ?"; return; }
+        if (r?.error === 'NO_SELF_VOTE') { ack.classList.add('error-msg'); ack.textContent = "T'es idiot ou quoi ? tu vas pas voter pour toi même"; return; }
         if (r?.error === 'NO_ARROWS_LEFT') { ack.classList.add('error-msg'); ack.textContent = "❌ Tu n'as plus de flèche, tu ne peux plus jouer."; return; }
         ack.classList.add('error-msg'); ack.textContent = `❌ ${r?.error || 'Erreur'}`;
         done&&done(false);
@@ -201,7 +201,7 @@
       const gs = st.gameState || {};
       const ctx=`${phase}|${gs.currentIndex||''}|${gs.prompt||gs.question||gs.item||gs.theme||''}`;
       const sameContext = ctx===lastContextKey;
-      if(!sameContext){ byId('ack').textContent=''; byId('ack').classList.remove('error-msg'); lastContextKey=ctx; }
+      if(!sameContext){ byId('ack').textContent=''; byId('ack').classList.remove('error-msg'); lastContextKey=ctx; gameAVoteConfirmedTargetId=''; }
       const active = document.activeElement;
       const interactingInsideAction = active && ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(active.tagName) && a.contains(active);
       if (sameContext && interactingInsideAction && !st.resultsShown) {
@@ -217,6 +217,17 @@
           ? gs.eligibleTargets
           : (st.rankings || []).filter((p) => !p.eliminated).map((p) => p.playerId);
         const voteTargets = eligibleTargets.filter((pid) => pid !== me.playerId);
+        const byPid = new Map((st.rankings || []).map((p) => [p.playerId, p.name]));
+        const confirmedTargetId = String(gs.answers?.[me.playerId] || gameAVoteConfirmedTargetId || '');
+        const confirmedTargetName = byPid.get(confirmedTargetId) || confirmedTargetId;
+
+        if (confirmedTargetId) {
+          a.innerHTML = `<select id='t' disabled>${playerListFromIds(eligibleTargets)}</select><p class='plus'>✅ Vous avez bien voté pour ${confirmedTargetName}</p>`;
+          const select = byId('t');
+          if (select && voteTargets.includes(confirmedTargetId)) select.value = confirmedTargetId;
+          return;
+        }
+
         a.innerHTML = `<select id='t'>${playerListFromIds(eligibleTargets)}</select><button id='s'>Voter</button>`;
         const select = byId('t');
         const submit = byId('s');
@@ -231,11 +242,19 @@
           submit.disabled = !voteTargets.includes(select.value);
         });
         submit.onclick = () => {
-          if (!voteTargets.includes(select.value)) return;
+          if (!voteTargets.includes(select.value)) {
+            if (select.value === me.playerId) {
+              const ack = byId('ack');
+              ack.classList.add('error-msg');
+              ack.textContent = "T'es idiot ou quoi ? tu vas pas voter pour toi même";
+            }
+            return;
+          }
           submit.disabled = true;
           send('A_VOTE', { targetPlayerId: select.value }, (ok) => {
             if (ok) {
-              select.disabled = true;
+              gameAVoteConfirmedTargetId = select.value;
+              renderAction();
               return;
             }
             submit.disabled = false;
