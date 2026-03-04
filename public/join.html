@@ -137,6 +137,15 @@
         .join('');
     }
 
+    function playerListFromIds(ids = []) {
+      const byPid = new Map((st?.rankings || []).map((p) => [p.playerId, p]));
+      return ids
+        .map((pid) => byPid.get(pid))
+        .filter((p) => p && !p.eliminated)
+        .map((p) => `<option value='${p.playerId}'>${p.name}</option>`)
+        .join('');
+    }
+
     function updateScore() {
       if (!st || !me) return;
       const meState = (st.rankings || []).find((p) => p.playerId === me.playerId);
@@ -203,12 +212,14 @@
         if (phase === 'GAME_F' && gs.results?.winner === me.playerId && Number(gs.results?.winnerBonus||0) > 0) { a.innerHTML = `<p class='plus'>🏆 Tu es le dernier avec des flèches : +${gs.results.winnerBonus} points</p>`; return; }
         a.innerHTML = '<p>Résultats affichés: réponses fermées.</p>'; return; }
       if (phase === 'GAME_A') {
-        const alive = (st.rankings || []).filter((p) => !p.eliminated);
-        const voteTargets = alive.filter((p) => p.playerId !== me.playerId);
-        a.innerHTML = `<select id='t'>${playerList()}</select><button id='s'>Voter</button>`;
+        const eligibleTargets = Array.isArray(gs.eligibleTargets) && gs.eligibleTargets.length
+          ? gs.eligibleTargets
+          : (st.rankings || []).filter((p) => !p.eliminated).map((p) => p.playerId);
+        const voteTargets = eligibleTargets.filter((pid) => pid !== me.playerId);
+        a.innerHTML = `<select id='t'>${playerListFromIds(eligibleTargets)}</select><button id='s'>Voter</button>`;
         const select = byId('t');
         const submit = byId('s');
-        const preferredTarget = gameAVoteSelection || voteTargets[0]?.playerId || '';
+        const preferredTarget = voteTargets.includes(gameAVoteSelection) ? gameAVoteSelection : (voteTargets[0] || '');
         if (preferredTarget) select.value = preferredTarget;
         if (!voteTargets.length) {
           select.disabled = true;
