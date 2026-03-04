@@ -8,6 +8,9 @@ MVP temps réel **TV + mobiles + Admin** avec mini-jeux intégrés, Conseil et F
 - `public/` : UI TV/Admin/Aventurier
 - `public/Visuels/` : assets immersifs à uploader
 
+> Note architecture POC: le runtime principal est `server.js` + pages `public/*.html`.
+> Les fichiers `server/games/*` et `public/js/*` sont conservés comme legacy/référence.
+
 ## Routes
 - `/` : choix ADMIN / AVENTURIER
 - `/admin` : console game master (mot de passe `Admin`)
@@ -15,7 +18,7 @@ MVP temps réel **TV + mobiles + Admin** avec mini-jeux intégrés, Conseil et F
 - `/tv` : écran TV
 
 ## State machine globale
-`LOBBY -> INTRO -> GAME_A -> RESULTS_A -> GAME_B -> RESULTS_B -> GAME_C -> RESULTS_C -> GAME_D -> RESULTS_D -> GAME_E -> RESULTS_E -> COUNCIL -> COUNCIL_RESULT -> FINAL -> FINAL_RESULT -> END`
+`LOBBY -> INTRO -> GAME_A -> RESULTS_A -> GAME_B -> RESULTS_B -> GAME_C -> RESULTS_C -> GAME_D -> RESULTS_D -> GAME_E -> RESULTS_E -> GAME_G -> GAME_H -> GAME_I -> COUNCIL -> COUNCIL_RESULT -> FINAL -> FINAL_RESULT -> END`
 
 ## Contrôles Admin
 Via `admin:command`:
@@ -31,6 +34,9 @@ Via `admin:command`:
 - **GAME_C** Prix juste
 - **GAME_D** Top 3 Maroc
 - **GAME_E** Partager/Trahir (rounds)
+- **GAME_G** Imposteurs
+- **GAME_H** Totem caché (réactivité)
+- **GAME_I** Porte cachée
 - **COUNCIL** vote secret avec immunité
 - **FINAL** mise (0-5) + question finale
 

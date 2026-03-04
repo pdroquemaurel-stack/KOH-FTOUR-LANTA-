@@ -64,10 +64,12 @@ const SESSION = {
   resultsShown: false,
   tvMuted: false,
   lastTvAudioError: null,
-  previewGame: { game: 'GAME_A', questionIndex: 0 }
+  previewGame: { game: 'GAME_A', questionIndex: 0 },
+  lastScoreDeltas: {}
 };
 
 let gameBTimer = null;
+let totemRevealTimer = null;
 
 function gameBrief(game){
   const map={
@@ -89,6 +91,10 @@ function safeAnimal(v) { return String(v || '').trim().slice(0, 160) || 'Tigre';
 function touch() { SESSION.updatedAt = nowIso(); }
 function phaseAllowsActions() { return SESSION.started && !SESSION.paused && !SESSION.answerLocked; }
 function activePlayers() { return [...SESSION.players.values()].filter((p) => !p.eliminated); }
+function isActivePlayerId(playerId) {
+  const p = SESSION.players.get(String(playerId || ''));
+  return !!p && !p.eliminated;
+}
 
 function gameProgress() {
   if (!SESSION.phase?.startsWith('GAME_') && SESSION.phase !== 'COUNCIL' && SESSION.phase !== 'FINAL') return { answeredPlayerIds: [], pendingPlayerIds: [] };
@@ -256,8 +262,19 @@ function initPhaseState(phase, options = {}) {
     SESSION.gameState = { key: 'GAME_C', index: selectedIndex, item: item.item, realPrice: item.price, maxPrice: Math.max(0, Number(item.price) * 5), withoutOver: true, answers: {}, completed: false };
   } else if (phase === 'GAME_D') {
     const selectedIndex = Math.max(0, Number(options?.index || 0));
-    const t = CONFIG.blindtest[selectedIndex] || { title: `Chanson ${selectedIndex + 1}`, artist: 'Artiste inconnu' };
-    SESSION.gameState = { key: 'GAME_D', index: selectedIndex, songTitle: t.title || `Chanson ${selectedIndex + 1}`, artist: t.artist || 'Artiste inconnu', stage: 'INTRO', awards: {}, winners: [], completed: false };
+    const t = CONFIG.blindtest[selectedIndex] || {};
+    SESSION.gameState = {
+      key: 'GAME_D',
+      index: selectedIndex,
+      prompt: String(t.prompt || t.title || `Chanson ${selectedIndex + 1}`),
+      answer: String(t.answer || t.artist || ''),
+      songTitle: String(t.title || t.prompt || `Chanson ${selectedIndex + 1}`),
+      artist: String(t.artist || t.answer || 'Artiste inconnu'),
+      stage: 'INTRO',
+      awards: {},
+      winners: [],
+      completed: false
+    };
   } else if (phase === 'GAME_E') {
     const ids = activePlayers().map((p) => p.playerId);
     const pairs = [];
@@ -274,13 +291,34 @@ function initPhaseState(phase, options = {}) {
     contenders.forEach((pid, idx) => { playerColors[pid] = ['#ff595e','#ffca3a','#8ac926','#1982c4','#6a4c93','#f72585','#4cc9f0','#ffd166'][idx % 8]; });
     SESSION.gameState = { key: 'GAME_F', name: 'Vise bien ou fais toi des amis', stage: 'AIM', shots: {}, breakChoice: null, results: null, contenders, playerColors, completed: false };
   } else if (phase === 'GAME_G') {
-    const ids = activePlayers().map((p)=>p.playerId);
-    const shuffled=[...ids].sort(()=>Math.random()-0.5);
-    const impCount=Math.max(1, Math.min(2, Math.floor(ids.length/3)||1));
-    const roles={};
-    ids.forEach((pid,idx)=>{ roles[pid]=idx<impCount?'IMPOSTOR':'NEUTRAL'; });
-    shuffled.slice(0,impCount).forEach((pid)=>roles[pid]='IMPOSTOR');
-    SESSION.gameState = { key:'GAME_G', roles, selectedPlayerId:null, announced:false, results:null };
+    const ids = activePlayers().map((p) => p.playerId);
+    const shuffled = [...ids].sort(() => Math.random() - 0.5);
+    const impCount = Math.max(1, Math.min(2, Math.floor(ids.length / 3) || 1));
+    const impostorIds = shuffled.slice(0, impCount);
+    const roles = {};
+    ids.forEach((pid) => { roles[pid] = impostorIds.includes(pid) ? 'IMPOSTOR' : 'NEUTRAL'; });
+    SESSION.gameState = {
+      key: 'GAME_G',
+      stage: 'WORD_REVEAL',
+      word: 'Aventure',
+      impostorIds,
+      roles,
+      alreadyPlayed: [],
+      passageOrder: [],
+      hasSeenWord: {},
+      votes: {},
+      selectedPlayerId: null,
+      announced: false,
+      results: null
+    };
+  } else if (phase === 'GAME_H') {
+    if (totemRevealTimer) {
+      clearTimeout(totemRevealTimer);
+      totemRevealTimer = null;
+    }
+    SESSION.gameState = { key: 'GAME_H', stage: 'HIDDEN', revealAt: null, clickedAt: {}, results: null, completed: false };
+  } else if (phase === 'GAME_I') {
+    SESSION.gameState = { key: 'GAME_I', stage: 'CHOOSING', doorChoices: {}, winningDoor: null, results: null, completed: false };
   } else if (phase === 'COUNCIL') {
     SESSION.gameState = { key: 'COUNCIL', votes: {}, noSelfVote: true, completed: false };
   } else if (phase === 'FINAL') {
@@ -420,6 +458,7 @@ function resetSession() {
   SESSION.paused = false;
   SESSION.previewGame = null;
   SESSION.lastAward = null;
+  SESSION.lastScoreDeltas = {};
   SESSION.joinSeqCounter = 0;
 }
 
@@ -561,23 +600,6 @@ function resolveGameF() {
   publishResults(payload);
 }
 
-function resolveGameG() {
-  const g=SESSION.gameState||{};
-  const roles=g.roles||{};
-  const selected=String(g.selectedPlayerId||'');
-  if(!selected) return;
-  const isImp = roles[selected]==='IMPOSTOR';
-  const gains={};
-  Object.entries(roles).forEach(([pid,role])=>{
-    if(isImp && role!=='IMPOSTOR'){ addScore(pid,1); gains[pid]=1; }
-    if(!isImp && role==='IMPOSTOR'){ addScore(pid,2); gains[pid]=2; }
-  });
-  const payload={game:'G', selectedPlayerId:selected, selectedRole:roles[selected]||'NEUTRAL', gains};
-  SESSION.gameState.results=payload;
-  SESSION.gameState.announced=true;
-  publishResults(payload);
-}
-
 function resolveCouncil() {
   const tally = {};
   Object.entries(SESSION.gameState.votes).forEach(([, target]) => {
@@ -619,7 +641,15 @@ function resolveFinal() {
 function resolveGameG(revealedPlayerId) {
   const g = SESSION.gameState || {};
   const impostorIds = Array.isArray(g.impostorIds) ? g.impostorIds : [];
-  const chosen = String(revealedPlayerId || '');
+  let chosen = String(revealedPlayerId || g.selectedPlayerId || '');
+  if (!chosen) {
+    const tally = {};
+    Object.values(g.votes || {}).forEach((pid) => {
+      tally[pid] = (tally[pid] || 0) + 1;
+    });
+    chosen = Object.entries(tally).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+  }
+  if (!chosen) return;
   const targetIsImpostor = impostorIds.includes(chosen);
   const impacts = {};
   for (const p of SESSION.players.values()) {
@@ -631,8 +661,10 @@ function resolveGameG(revealedPlayerId) {
     p.score += delta;
     impacts[p.playerId] = delta;
   }
-  const payload = { game: 'G', impostorIds, revealedPlayerId: chosen, targetIsImpostor, impacts };
+  const payload = { game: 'G', impostorIds, revealedPlayerId: chosen, selectedPlayerId: chosen, targetIsImpostor, impacts };
   SESSION.gameState.results = payload;
+  SESSION.gameState.selectedPlayerId = chosen;
+  SESSION.gameState.announced = true;
   SESSION.history.push({ at: nowIso(), game: 'G', impostorIds, revealedPlayerId: chosen, targetIsImpostor });
   publishResults(payload);
 }
@@ -722,7 +754,8 @@ function isAdmin(socket) { return SESSION.adminSocketId === socket.id; }
 io.on('connection', (socket) => {
   socket.emit('game:state', buildState());
 
-  socket.on('admin:auth', ({ password }, ack) => {
+  socket.on('admin:auth', (data = {}, ack) => {
+    const { password } = data;
     if (password !== ADMIN_PASSWORD) return ack?.({ ok: false, error: 'UNAUTHORIZED' });
     if (SESSION.adminSocketId && SESSION.adminSocketId !== socket.id) io.to(SESSION.adminSocketId).emit('admin:revoked', { reason: 'NEW_ADMIN_CONNECTED' });
     SESSION.adminSocketId = socket.id;
@@ -730,7 +763,8 @@ io.on('connection', (socket) => {
     broadcastState();
   });
 
-  socket.on('admin:command', ({ command, payload }, ack) => {
+  socket.on('admin:command', (data = {}, ack) => {
+    const { command, payload } = data;
     if (!isAdmin(socket)) return ack?.({ ok: false, error: 'UNAUTHORIZED' });
     if (command === 'START') {
       SESSION.started = true; setPhase('INTRO'); startTimer(10); initPhaseState('INTRO');
@@ -777,7 +811,7 @@ io.on('connection', (socket) => {
     }
     else if (command === 'LAUNCH_GAME') {
       const game = String(payload?.game || 'GAME_A');
-      const allowedGames = ['GAME_A', 'GAME_B', 'GAME_C', 'GAME_D', 'GAME_F', 'GAME_G'];
+      const allowedGames = ['GAME_A', 'GAME_B', 'GAME_C', 'GAME_D', 'GAME_E', 'GAME_F', 'GAME_G', 'GAME_H', 'GAME_I'];
       if (!allowedGames.includes(game)) return ack?.({ ok: false, error: 'UNSUPPORTED_GAME' });
       SESSION.started = true;
       SESSION.previewGame = { game, questionIndex: Number(payload?.questionIndex || 0) };
@@ -860,6 +894,14 @@ io.on('connection', (socket) => {
     }
     else if (command === 'GAME_D_NEXT_SONG') {
       if (SESSION.phase !== 'GAME_D') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      const bank = Array.isArray(CONFIG.blindtest) ? CONFIG.blindtest : [];
+      const next = (Number(SESSION.gameState.index || 0) + 1) % Math.max(1, bank.length || 1);
+      const q = bank[next] || {};
+      SESSION.gameState.index = next;
+      SESSION.gameState.prompt = String(q.prompt || q.title || `Chanson ${next + 1}`);
+      SESSION.gameState.answer = String(q.answer || q.artist || '');
+      SESSION.gameState.songTitle = String(q.title || q.prompt || `Chanson ${next + 1}`);
+      SESSION.gameState.artist = String(q.artist || q.answer || 'Artiste inconnu');
       SESSION.gameState.awards = {};
       SESSION.gameState.winners = [];
       SESSION.gameState.stage = 'INTRO';
@@ -920,20 +962,6 @@ io.on('connection', (socket) => {
       SESSION.gameState.stage = 'PLAYING';
       SESSION.previewGame = null;
     }
-    else if (command === 'GAME_D_NEXT_SONG') {
-      if (SESSION.phase !== 'GAME_D') return ack?.({ ok:false, error:'INVALID_PHASE' });
-      const bank = Array.isArray(CONFIG.blindtest) ? CONFIG.blindtest : [];
-      const next = (Number(SESSION.gameState.index||0) + 1) % Math.max(1, bank.length || 1);
-      const q = bank[next] || { prompt:'Blind test', answer:'' };
-      SESSION.gameState.index = next;
-      SESSION.gameState.prompt = q.prompt || 'Blind test';
-      SESSION.gameState.answer = String(q.answer||'');
-      SESSION.gameState.answers = {};
-      SESSION.gameState.awardedByPid = {};
-      SESSION.gameState.stage = 'PREVIEW';
-      SESSION.previewGame = { game:'GAME_D', ...gameBrief('GAME_D') };
-      SESSION.lastAward = null;
-    }
     else if (command === 'GAME_D_TOGGLE') {
       if (SESSION.phase !== 'GAME_D') return ack?.({ ok:false, error:'INVALID_PHASE' });
       const pid=String(payload?.playerId||'');
@@ -991,7 +1019,8 @@ io.on('connection', (socket) => {
     ack?.({ ok: true });
   });
 
-  socket.on('room:join', ({ playerId, reconnectToken, name, animal }, ack) => {
+  socket.on('room:join', (data = {}, ack) => {
+    const { playerId, reconnectToken, name, animal } = data;
     const pid = String(playerId || crypto.randomUUID());
     const token = String(reconnectToken || crypto.randomUUID());
     const existing = SESSION.players.get(pid);
@@ -1005,7 +1034,8 @@ io.on('connection', (socket) => {
     ack?.({ ok: true, player: { ...p } });
   });
 
-  socket.on('player:update', ({ playerId, ready }, ack) => {
+  socket.on('player:update', (data = {}, ack) => {
+    const { playerId, ready } = data;
     const p = SESSION.players.get(String(playerId || socket.data.playerId || ''));
     if (!p) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
     if (typeof ready !== 'undefined') p.ready = !!ready;
@@ -1013,7 +1043,8 @@ io.on('connection', (socket) => {
     touch(); broadcastState(); ack?.({ ok: true });
   });
 
-  socket.on('game:action', ({ type, payload }, ack) => {
+  socket.on('game:action', (data = {}, ack) => {
+    const { type, payload = {} } = data;
     const pid = String(socket.data.playerId || payload?.playerId || '');
     const p = SESSION.players.get(pid);
     if (!p) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
@@ -1023,6 +1054,7 @@ io.on('connection', (socket) => {
       if (SESSION.gameState.answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
       const target = payload?.targetPlayerId || '';
       if (target === pid) return ack?.({ ok: false, error: 'NO_SELF_VOTE' });
+      if (!isActivePlayerId(target)) return ack?.({ ok: false, error: 'INVALID_TARGET' });
       SESSION.gameState.answers[pid] = target;
     } else if (SESSION.phase === 'GAME_G' && type === 'G_FETCH_WORD') {
       if (SESSION.gameState.stage !== 'WORD_REVEAL') return ack?.({ ok: false, error: 'INVALID_STAGE' });
@@ -1035,7 +1067,7 @@ io.on('connection', (socket) => {
       if (SESSION.gameState.stage !== 'VOTE') return ack?.({ ok: false, error: 'INVALID_STAGE' });
       if (SESSION.gameState.votes[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
       const target = String(payload?.targetPlayerId || '');
-      if (!SESSION.players.has(target)) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
+      if (!isActivePlayerId(target) || target === pid) return ack?.({ ok: false, error: 'INVALID_TARGET' });
       SESSION.gameState.votes[pid] = target;
     } else if (SESSION.phase === 'GAME_H' && type === 'H_GRAB_TOTEM') {
       if (SESSION.gameState.stage !== 'REVEALED') return ack?.({ ok: false, error: 'TOO_EARLY' });
@@ -1120,6 +1152,7 @@ io.on('connection', (socket) => {
       if (SESSION.gameState.votes[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
       const target = payload?.targetPlayerId;
       if (SESSION.gameState.noSelfVote && target === pid) return ack?.({ ok: false, error: 'NO_SELF_VOTE' });
+      if (!isActivePlayerId(target)) return ack?.({ ok: false, error: 'INVALID_TARGET' });
       SESSION.gameState.votes[pid] = target;
     } else if (SESSION.phase === 'FINAL' && type === 'FINAL_BET_ANSWER') {
       if (!SESSION.gameState.finalists.includes(pid)) return ack?.({ ok: false, error: 'NOT_FINALIST' });
@@ -1133,7 +1166,8 @@ io.on('connection', (socket) => {
     ack?.({ ok: true, receivedAt: nowIso() });
   });
 
-  socket.on('tv:audio_error', ({ reason }, ack) => {
+  socket.on('tv:audio_error', (data = {}, ack) => {
+    const { reason } = data;
     const error = { at: nowIso(), reason: String(reason || 'AUDIO_PLAYBACK_FAILED').slice(0, 180) };
     SESSION.lastTvAudioError = error;
     if (SESSION.adminSocketId) io.to(SESSION.adminSocketId).emit('admin:tv_audio_error', error);
