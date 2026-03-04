@@ -1,4 +1,4 @@
-<!doctype html><html lang="fr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Admin</title><link rel="stylesheet" href="/style.css"/></head><body>
+<!doctype html><html lang="fr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Admin</title><link rel="stylesheet" href="/style.css"/><style>.status-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;vertical-align:middle;box-shadow:0 0 0 2px rgba(255,255,255,.12)}.status-dot.connected{background:#32d16d}.status-dot.disconnected{background:#ff5a5a}</style></head><body>
 <div class="container"><h1 class="title">🛡️ Admin</h1>
 <section id="auth" class="panel"><input id="pwd" type="password" placeholder="Mot de passe Admin"/><button id="login" class="mt">Connexion</button></section>
 <section id="dash" class="panel mt" style="display:none">
@@ -90,7 +90,7 @@ function render(s){
   state=s; selectedGame=byId('gamePicker')?.value||selectedGame||s.previewGame?.game||''; byId('phase').textContent=s.phase; byId('toggleTvMute').textContent=s.tvMuted?'TV: Démuter':'TV: Muter';
   fillGamePicker(s); fillQuestionPicker(s); renderGameInfo();
   const roster=byId('roster'); roster.innerHTML='';
-  s.rankings.forEach((p)=>{ const li=document.createElement('li'); li.innerHTML=`<div>#${p.rank} <strong>${p.name}</strong> <span class='small'>(${p.animal})</span> ${p.eliminated?'🪦':''}</div><div class='grid'>${arrowControls(p)}${scoreControls(p)}</div>`; roster.appendChild(li); });
+  s.rankings.forEach((p)=>{ const li=document.createElement('li'); const isConnected=p.status==='CONNECTED'; li.innerHTML=`<div><span class='status-dot ${isConnected?'connected':'disconnected'}' title='${isConnected?'Connecté':'Déconnecté'}'></span>#${p.rank} <strong>${p.name}</strong> <span class='small'>(${p.animal})</span> <span class='small'>${isConnected?'Connecté':'Déconnecté'}</span> ${p.eliminated?'🪦':''}</div><div class='grid'>${arrowControls(p)}${scoreControls(p)}</div>`; roster.appendChild(li); });
   const audioErr=byId('tvAudioError');
   if(s.lastTvAudioError){ audioErr.style.display=''; audioErr.textContent=`⚠️ Audio TV: ${s.lastTvAudioError.reason} (${new Date(s.lastTvAudioError.at).toLocaleTimeString()})`; }
   else { audioErr.style.display='none'; audioErr.textContent=''; }
