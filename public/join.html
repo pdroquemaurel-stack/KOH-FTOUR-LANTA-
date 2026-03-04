@@ -139,11 +139,12 @@
 
     function playerListFromIds(ids = []) {
       const byPid = new Map((st?.rankings || []).map((p) => [p.playerId, p]));
+      const placeholder = "<option value='' selected>Sélectionner un joueur</option>";
       return ids
         .map((pid) => byPid.get(pid))
         .filter((p) => p && !p.eliminated)
         .map((p) => `<option value='${p.playerId}'>${p.name}</option>`)
-        .join('');
+        .reduce((acc, option) => acc + option, placeholder);
     }
 
     function updateScore() {
@@ -219,8 +220,7 @@
         a.innerHTML = `<select id='t'>${playerListFromIds(eligibleTargets)}</select><button id='s'>Voter</button>`;
         const select = byId('t');
         const submit = byId('s');
-        const preferredTarget = voteTargets.includes(gameAVoteSelection) ? gameAVoteSelection : (voteTargets[0] || '');
-        if (preferredTarget) select.value = preferredTarget;
+        submit.disabled = true;
         if (!voteTargets.length) {
           select.disabled = true;
           submit.disabled = true;
@@ -228,10 +228,10 @@
           byId('ack').textContent = 'En attente d\'autres joueurs pour voter.';
         }
         select.addEventListener('change', () => {
-          gameAVoteSelection = select.value;
+          submit.disabled = !voteTargets.includes(select.value);
         });
         submit.onclick = () => {
-          gameAVoteSelection = select.value;
+          if (!voteTargets.includes(select.value)) return;
           send('A_VOTE', { targetPlayerId: select.value }, (ok) => {
             if (ok) {
               submit.disabled = true;
