@@ -42,6 +42,7 @@
     let me = null, st = null;
     let answerUiState = { key: '', values: {}, validated: false };
     let lastContextKey='';
+    let gameAVoteSelection = '';
 
     const CHARACTERS = [
       { file: 'Visuels/joueur/Lion rouge sang.webp', color: '#8A0303' },
@@ -132,7 +133,16 @@
     function playerList() {
       return (st?.rankings || [])
         .filter((p) => !p.eliminated)
-        .map((p) => `<option value='${p.playerId}' ${p.playerId === me?.playerId ? 'selected' : ''}>${p.name}</option>`)
+        .map((p) => `<option value='${p.playerId}'>${p.name}</option>`)
+        .join('');
+    }
+
+    function playerListFromIds(ids = []) {
+      const byPid = new Map((st?.rankings || []).map((p) => [p.playerId, p]));
+      return ids
+        .map((pid) => byPid.get(pid))
+        .filter((p) => p && !p.eliminated)
+        .map((p) => `<option value='${p.playerId}'>${p.name}</option>`)
         .join('');
     }
 
@@ -192,8 +202,8 @@
       const sameContext = ctx===lastContextKey;
       if(!sameContext){ byId('ack').textContent=''; byId('ack').classList.remove('error-msg'); lastContextKey=ctx; }
       const active = document.activeElement;
-      const typingInsideAction = active && active.tagName==='INPUT' && a.contains(active);
-      if (sameContext && typingInsideAction && !st.resultsShown) {
+      const interactingInsideAction = active && ['INPUT', 'SELECT', 'TEXTAREA'].includes(active.tagName) && a.contains(active);
+      if (sameContext && interactingInsideAction && !st.resultsShown) {
         return;
       }
       document.body.classList.toggle('archery-active', phase === 'GAME_F');
@@ -201,7 +211,35 @@
       if (st.resultsShown) {
         if (phase === 'GAME_F' && gs.results?.winner === me.playerId && Number(gs.results?.winnerBonus||0) > 0) { a.innerHTML = `<p class='plus'>🏆 Tu es le dernier avec des flèches : +${gs.results.winnerBonus} points</p>`; return; }
         a.innerHTML = '<p>Résultats affichés: réponses fermées.</p>'; return; }
-      if (phase === 'GAME_A') { a.innerHTML = `<select id='t'>${playerList()}</select><button id='s'>Voter</button>`; byId('s').onclick = () => send('A_VOTE', { targetPlayerId: byId('t').value }); }
+      if (phase === 'GAME_A') {
+        const eligibleTargets = Array.isArray(gs.eligibleTargets) && gs.eligibleTargets.length
+          ? gs.eligibleTargets
+          : (st.rankings || []).filter((p) => !p.eliminated).map((p) => p.playerId);
+        const voteTargets = eligibleTargets.filter((pid) => pid !== me.playerId);
+        a.innerHTML = `<select id='t'>${playerListFromIds(eligibleTargets)}</select><button id='s'>Voter</button>`;
+        const select = byId('t');
+        const submit = byId('s');
+        const preferredTarget = voteTargets.includes(gameAVoteSelection) ? gameAVoteSelection : (voteTargets[0] || '');
+        if (preferredTarget) select.value = preferredTarget;
+        if (!voteTargets.length) {
+          select.disabled = true;
+          submit.disabled = true;
+          byId('ack').classList.remove('error-msg');
+          byId('ack').textContent = 'En attente d\'autres joueurs pour voter.';
+        }
+        select.addEventListener('change', () => {
+          gameAVoteSelection = select.value;
+        });
+        submit.onclick = () => {
+          gameAVoteSelection = select.value;
+          send('A_VOTE', { targetPlayerId: select.value }, (ok) => {
+            if (ok) {
+              submit.disabled = true;
+              select.disabled = true;
+            }
+          });
+        };
+      }
       else if (phase === 'GAME_B') {
         const k = `B|${gs.currentIndex ?? -1}|${gs.questions?.[gs.currentIndex]?.prompt || ''}`;
         resetAnswerState(k);
