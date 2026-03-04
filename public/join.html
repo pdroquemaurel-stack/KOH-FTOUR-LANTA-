@@ -203,7 +203,7 @@
       const sameContext = ctx===lastContextKey;
       if(!sameContext){ byId('ack').textContent=''; byId('ack').classList.remove('error-msg'); lastContextKey=ctx; }
       const active = document.activeElement;
-      const interactingInsideAction = active && ['INPUT', 'SELECT', 'TEXTAREA'].includes(active.tagName) && a.contains(active);
+      const interactingInsideAction = active && ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(active.tagName) && a.contains(active);
       if (sameContext && interactingInsideAction && !st.resultsShown) {
         return;
       }
@@ -232,11 +232,13 @@
         });
         submit.onclick = () => {
           if (!voteTargets.includes(select.value)) return;
+          submit.disabled = true;
           send('A_VOTE', { targetPlayerId: select.value }, (ok) => {
             if (ok) {
-              submit.disabled = true;
               select.disabled = true;
+              return;
             }
+            submit.disabled = false;
           });
         };
       }
