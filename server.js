@@ -91,6 +91,7 @@ function safeAnimal(v) { return String(v || '').trim().slice(0, 160) || 'Tigre';
 function touch() { SESSION.updatedAt = nowIso(); }
 function phaseAllowsActions() { return SESSION.started && !SESSION.paused && !SESSION.answerLocked; }
 function activePlayers() { return [...SESSION.players.values()].filter((p) => !p.eliminated); }
+function connectedActivePlayers() { return activePlayers().filter((p) => p.status === 'CONNECTED'); }
 function isActivePlayerId(playerId) {
   const p = SESSION.players.get(String(playerId || ''));
   return !!p && !p.eliminated;
@@ -124,6 +125,8 @@ function gameProgress() {
       trackable = [SESSION.gameState.closest];
       if (SESSION.gameState.breakChoice?.target) answeredSet.add(SESSION.gameState.closest);
     }
+  } else if (SESSION.phase === 'GAME_A' && Array.isArray(SESSION.gameState.eligibleVoters)) {
+    trackable = alive.filter((pid) => SESSION.gameState.eligibleVoters.includes(pid));
   }
 
   const answered = trackable.filter((pid) => answeredSet.has(pid));
@@ -233,10 +236,19 @@ function resumeTimer() {
 function initPhaseState(phase, options = {}) {
   if (phase === 'GAME_A') {
     const selectedIndex = Math.max(0, Number(options?.index || 0));
-    SESSION.gameState = { key: 'GAME_A', index: selectedIndex, question: CONFIG.susceptibleQuestions[selectedIndex] || '', answers: {}, completed: false };
+    const launchSnapshot = connectedActivePlayers().map((p) => p.playerId);
+    SESSION.gameState = {
+      key: 'GAME_A',
+      index: selectedIndex,
+      question: CONFIG.susceptibleQuestions[selectedIndex] || '',
+      answers: {},
+      eligibleVoters: launchSnapshot,
+      eligibleTargets: launchSnapshot,
+      completed: false
+    };
   } else if (phase === 'GAME_B') {
     const count = Math.max(1, Math.min(15, Number(options?.count || 1)));
-    const seconds = Math.max(15, Math.min(30, Number(options?.seconds || 20)));
+    const seconds = Math.max(10, Math.min(60, Number(options?.seconds || 20)));
     const bank = Array.isArray(CONFIG.freeQuestions) ? CONFIG.freeQuestions : [];
     const shuffled = [...bank].sort(() => Math.random() - 0.5);
     const picked = shuffled.slice(0, Math.min(count, shuffled.length));
@@ -396,7 +408,10 @@ function resolveGameA() {
 
   const sortedTop = Object.entries(tally).sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]));
   const top3 = sortedTop.slice(0, 3).map(([playerId, votesCount]) => ({ playerId, votesCount }));
-  const top = top3[0]?.playerId || null;
+  const topVotes = sortedTop[0]?.[1] || 0;
+  const tiedTopPlayerIds = topVotes > 0 ? sortedTop.filter(([, count]) => count === topVotes).map(([pid]) => pid) : [];
+  const uniqueTopPlayerId = tiedTopPlayerIds.length === 1 ? tiedTopPlayerIds[0] : null;
+  const top = tiedTopPlayerIds[0] || null;
 
   const voteCountsByPlayer = Object.fromEntries(sortedTop.map(([pid, count]) => [pid, count]));
   const impacts = {};
@@ -404,14 +419,13 @@ function resolveGameA() {
     ensurePlayerScore(p);
     let delta = 0;
     const votedFor = votes[p.playerId];
-    if (votedFor && top && votedFor === top) delta += 1;
-    if (votedFor && top && votedFor !== top) delta += 0;
-    if (p.playerId === top) delta -= 2;
+    if (votedFor && uniqueTopPlayerId && votedFor === uniqueTopPlayerId) delta += 1;
+    if (tiedTopPlayerIds.includes(p.playerId)) delta -= 2;
     if (votedFor && voteCountsByPlayer[votedFor] === 1) delta -= 1;
     p.score += delta;
     impacts[p.playerId] = delta;
   }
-  const payload = { game: 'A', tally, top, top3, impacts };
+  const payload = { game: 'A', tally, top, tiedTopPlayerIds, top3, impacts };
   SESSION.gameState.results = payload;
   SESSION.history.push({ at: nowIso(), game: 'A', winner: top, tally, top3, impacts });
   publishResults(payload);
@@ -1051,9 +1065,13 @@ io.on('connection', (socket) => {
     if (!phaseAllowsActions()) return ack?.({ ok: false, error: 'PHASE_LOCKED' });
 
     if (SESSION.phase === 'GAME_A' && type === 'A_VOTE') {
+      const eligibleVoters = Array.isArray(SESSION.gameState.eligibleVoters) ? SESSION.gameState.eligibleVoters : [];
+      const eligibleTargets = Array.isArray(SESSION.gameState.eligibleTargets) ? SESSION.gameState.eligibleTargets : [];
+      if (eligibleVoters.length && !eligibleVoters.includes(pid)) return ack?.({ ok: false, error: 'INVALID_VOTER' });
       if (SESSION.gameState.answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
-      const target = payload?.targetPlayerId || '';
+      const target = String(payload?.targetPlayerId || '');
       if (target === pid) return ack?.({ ok: false, error: 'NO_SELF_VOTE' });
+      if (eligibleTargets.length && !eligibleTargets.includes(target)) return ack?.({ ok: false, error: 'INVALID_TARGET' });
       if (!isActivePlayerId(target)) return ack?.({ ok: false, error: 'INVALID_TARGET' });
       SESSION.gameState.answers[pid] = target;
     } else if (SESSION.phase === 'GAME_G' && type === 'G_FETCH_WORD') {
@@ -1085,6 +1103,7 @@ io.on('connection', (socket) => {
       const qIdx = g.currentIndex;
       if (qIdx < 0) return ack?.({ ok: false, error: 'NO_ACTIVE_QUESTION' });
       const answers = g.answersByQuestion[qIdx] || {};
+      if (answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
       answers[pid] = {
         answer: String(payload?.answer || '').slice(0, 240),
         at: now(),
@@ -1092,6 +1111,9 @@ io.on('connection', (socket) => {
       };
       g.answersByQuestion[qIdx] = answers;
       g.currentAnswers = serializeGameBAnswers(qIdx);
+      touch();
+      broadcastState();
+      return ack?.({ ok: true, questionIndex: qIdx, playerId: pid });
     } else if (SESSION.phase === 'GAME_C' && type === 'C_GUESS') {
       if (SESSION.gameState.answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
       const max = Math.max(0, Number(SESSION.gameState.maxPrice || 0));
