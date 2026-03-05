@@ -87,10 +87,11 @@ function renderResults(s){
   if(s.phase==='GAME_B'&&s.gameState?.stage==='REVIEW'){
     const qIdx=Number(s.gameState?.reviewIndex||0);
     const q=s.gameState?.questions?.[qIdx]||{};
-    const rows=(s.gameState?.reviewAnswers||[]).map((it)=>`<li><strong>${it.name}</strong> — ${it.answer||'—'} ${it.validated?"<span class='plus'>✅</span>":''}</li>`).join('');
+    const rows=(s.gameState?.reviewAnswers||[]).map((it)=>`<li style='display:flex;justify-content:space-between;gap:8px;align-items:center;'><div><strong>${it.name}</strong> — ${it.answer||'—'}</div><button data-bvalidate='${it.playerId}' class='${it.validated?'secondary':''}' style='width:auto;padding:.35rem .55rem;'>${it.validated?'✅ Validée':'❌ Refusée'}</button></li>`).join('');
     byId('results').style.display='';
     byId('top3').innerHTML=`<li>Jeu B — Correction ${qIdx+1}/${(s.gameState?.questions||[]).length||1}</li><li><em>${q.prompt||'Question'}</em></li><li>Bonne réponse: <strong>${q.answer||'—'}</strong></li>`;
     byId('impactList').innerHTML=rows||'<li>Aucune réponse</li>';
+    byId('impactList').querySelectorAll('[data-bvalidate]').forEach((b)=>b.onclick=()=>cmd('GAME_B_TOGGLE_VALIDATE',{playerId:b.dataset.bvalidate}));
     return;
   }
   const r=s.gameState?.results; if(!r){ byId('results').style.display='none'; return; }

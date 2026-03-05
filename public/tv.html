@@ -170,7 +170,7 @@ function renderResults(s){
   } else if(r.game==='B' && r.mode==='manual_review') {
     const idx=Number(s.gameState?.reviewIndex||0);
     const current=r.questions?.[idx]||r.questions?.[0]||{question:'',expected:'',answers:[]};
-    const cards=(current.answers||[]).map((it)=>`<article class='tv-free-answer-card ${it.validated?'validated':''}'><div class='tv-free-answer-name'>${it.name}</div><div class='tv-free-answer-text'>${it.answer||'—'}</div></article>`).join('');
+    const cards=(current.answers||[]).map((it)=>`<article class='tv-free-answer-card ${it.validated?'validated':''}'><div class='tv-free-answer-name'>${it.name}</div><div class='tv-free-answer-text'>${it.answer||'—'}</div><div class='small ${it.validated?'plus':'minus'}'>${it.validated?'✅ Validée':'❌ Refusée'}</div></article>`).join('');
     resultsBlock.innerHTML=`<h3>Jeu B — Correction ${idx+1}/${(r.questions||[]).length||1}</h3><p class='small'>Bonne réponse: <strong>${current.expected||'—'}</strong></p><div class='tv-free-answer-grid'>${cards||'<p>Aucune réponse</p>'}</div>`;
   } else if(r.game==='H'){
     const top=(r.top5||[]).map((e,idx)=>`<li>#${idx+1} ${nameById[e.pid]||e.pid} — ${e.deltaMs} ms</li>`).join('');
