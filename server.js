@@ -248,7 +248,7 @@ function initPhaseState(phase, options = {}) {
     };
   } else if (phase === 'GAME_B') {
     const count = Math.max(1, Math.min(15, Number(options?.count || 1)));
-    const seconds = Math.max(15, Math.min(30, Number(options?.seconds || 20)));
+    const seconds = Math.max(10, Math.min(60, Number(options?.seconds || 20)));
     const bank = Array.isArray(CONFIG.freeQuestions) ? CONFIG.freeQuestions : [];
     const shuffled = [...bank].sort(() => Math.random() - 0.5);
     const picked = shuffled.slice(0, Math.min(count, shuffled.length));
@@ -1103,6 +1103,7 @@ io.on('connection', (socket) => {
       const qIdx = g.currentIndex;
       if (qIdx < 0) return ack?.({ ok: false, error: 'NO_ACTIVE_QUESTION' });
       const answers = g.answersByQuestion[qIdx] || {};
+      if (answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
       answers[pid] = {
         answer: String(payload?.answer || '').slice(0, 240),
         at: now(),
@@ -1110,6 +1111,9 @@ io.on('connection', (socket) => {
       };
       g.answersByQuestion[qIdx] = answers;
       g.currentAnswers = serializeGameBAnswers(qIdx);
+      touch();
+      broadcastState();
+      return ack?.({ ok: true, questionIndex: qIdx, playerId: pid });
     } else if (SESSION.phase === 'GAME_C' && type === 'C_GUESS') {
       if (SESSION.gameState.answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
       const max = Math.max(0, Number(SESSION.gameState.maxPrice || 0));

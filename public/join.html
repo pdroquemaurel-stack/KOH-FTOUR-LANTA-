@@ -264,8 +264,12 @@
       else if (phase === 'GAME_B') {
         const k = `B|${gs.currentIndex ?? -1}|${gs.questions?.[gs.currentIndex]?.prompt || ''}`;
         resetAnswerState(k);
-        const v = answerUiState.values.ans || '';
-        a.innerHTML = `<input id='ans' class='${answerUiState.validated ? 'answer-validated' : ''}' placeholder='Ta réponse' value="${String(v).replace(/"/g,'&quot;')}"/><button id='s'>Valider</button><p class='small'>${answerUiState.validated ? '✅ Réponse validée' : ''}</p>`;
+        const qIdx = Number(gs.currentIndex ?? -1);
+        const serverAnswer = gs.answersByQuestion?.[qIdx]?.[me.playerId]?.answer;
+        const submitted = answerUiState.validated || typeof serverAnswer === 'string';
+        const v = typeof serverAnswer === 'string' ? serverAnswer : (answerUiState.values.ans || '');
+        a.innerHTML = `<input id='ans' class='${submitted ? 'answer-validated' : ''}' placeholder='Ta réponse' value="${String(v).replace(/"/g,'&quot;')}" ${submitted ? 'readonly' : ''}/>${submitted ? '' : "<button id='s'>Valider</button>"}<p class='small'>${submitted ? '✅ Réponse validée' : ''}</p>`;
+        if (submitted) { answerUiState.values.ans = v; answerUiState.validated = true; return; }
         byId('ans')?.addEventListener('input', (ev) => { answerUiState.values.ans = ev.target.value; answerUiState.validated = false; ev.target.classList.remove('answer-validated'); const sm=a.querySelector('.small'); if(sm) sm.textContent=''; });
         byId('s').onclick = () => send('B_ANSWER', { answer: byId('ans').value }, (ok) => { if (ok) { answerUiState.values.ans = byId('ans').value; answerUiState.validated = true; renderAction(); } });
       }
