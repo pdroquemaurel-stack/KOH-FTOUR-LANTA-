@@ -1,4 +1,4 @@
-<!doctype html><html lang="fr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Admin</title><link rel="stylesheet" href="/style.css"/></head><body>
+<!doctype html><html lang="fr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Admin</title><link rel="stylesheet" href="/style.css"/><style>.status-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;vertical-align:middle;box-shadow:0 0 0 2px rgba(255,255,255,.12)}.status-dot.connected{background:#32d16d}.status-dot.disconnected{background:#ff5a5a}</style></head><body>
 <div class="container"><h1 class="title">🛡️ Admin</h1>
 <section id="auth" class="panel"><input id="pwd" type="password" placeholder="Mot de passe Admin"/><button id="login" class="mt">Connexion</button></section>
 <section id="dash" class="panel mt" style="display:none">
@@ -48,14 +48,14 @@
   <div class="panel mt"><h3>Scores joueurs (clic pseudo = +1)</h3><ul id="roster" class="roster"></ul></div>
 </section></div>
 <script src="/socket.io/socket.io.js"></script><script>
-const socket=io({transports:['websocket','polling']});let state=null;let selectedGame='';const byId=id=>document.getElementById(id);
+const socket=io({transports:['websocket','polling']});let state=null;let selectedGame='';let selectedQuestionIndex=0;const byId=id=>document.getElementById(id);
 const GAME_RULES={GAME_A:{title:'Jeu A — Susceptible de...',rules:'Vote pour un joueur',points:'+1 vote sur top, -2 plus cité'},GAME_B:{title:'Jeu B — 1 bonne réponse par question',rules:'Questions libres chronométrées',points:'+1 par réponse validée admin'},GAME_C:{title:'Jeu C — Le juste prix',rules:'Estimer le prix en DH',points:'+2 premier, +1 second'},GAME_D:{title:'Jeu D — Blind test',rules:'Trouver titre et artiste',points:'0,5 point titre + 0,5 point artiste'},GAME_F:{title:'Jeu F — Vise bien ou fais toi des amis',rules:'Viser puis casser une flèche',points:'Selon résultats'},GAME_G:{title:'Jeu G — Imposteurs',rules:'Désigner un joueur voté',points:'Imposteur trouvé: neutres +1, sinon imposteurs +2'},GAME_H:{title:'Jeu H — Totem caché',rules:'Trouver le totem caché',points:'Bonus selon résultat'},GAME_I:{title:'Jeu I — Porte cachée',rules:'Choisir une porte',points:'Bonus/Malus selon la porte'}};
 const GAME_LABELS={GAME_A:'Jeu A — Susceptible de...',GAME_B:'Jeu B — 1 bonne réponse par question',GAME_C:'Jeu C — Juste Prix',GAME_D:'Jeu D — Blind test',GAME_F:'Jeu F — Vise bien ou fais toi des amis',GAME_G:'Jeu G — Imposteur',GAME_H:'Jeu H — Totem Caché',GAME_I:'Jeu I — Porte Cachée'};
 function cmd(command,payload,cb){socket.emit('admin:command',{command,payload},cb);}
 function scoreControls(p){ return `<div class='score-ctl'><button data-score='-1' data-p='${p.playerId}' class='secondary'>-1</button><strong>${p.score}</strong><button data-score='1' data-p='${p.playerId}'>+1</button></div>`; }
 function arrowControls(p){ const arrows=Math.max(0,Math.min(2,Number(p.arrows??2))); return `<button class='secondary' data-restore-arrow='${p.playerId}'>🏹 ${arrows}/2 (+1)</button>`; }
 function fillGamePicker(s){ const gp=byId('gamePicker'); const cat=s.gameCatalog||{}; const games=Object.keys(cat); if(!selectedGame||!games.includes(selectedGame)) selectedGame=games[0]||''; gp.innerHTML="<option value=''>— Sélectionner un jeu —</option>"+games.map(g=>`<option value='${g}' ${selectedGame===g?'selected':''}>${GAME_LABELS[g]||g}</option>`).join(''); gp.value=selectedGame; }
-function fillQuestionPicker(s){ const qp=byId('questionPicker'); if(!selectedGame){qp.style.display='none';qp.innerHTML='';return;} const list=(s.gameCatalog&&s.gameCatalog[selectedGame])||[]; qp.style.display=''; qp.innerHTML=list.map(q=>`<option value='${q.index}'>${q.index+1}. ${q.label}</option>`).join('')||"<option value='0'>1</option>"; }
+function fillQuestionPicker(s){ const qp=byId('questionPicker'); if(!selectedGame){qp.style.display='none';qp.innerHTML='';return;} const list=(s.gameCatalog&&s.gameCatalog[selectedGame])||[]; qp.style.display=''; qp.innerHTML=list.map(q=>`<option value='${q.index}'>${q.index+1}. ${q.label}</option>`).join('')||"<option value='0'>1</option>"; const fromPreview=Number(s?.previewGame?.questionIndex); const candidate=Number.isFinite(fromPreview)?fromPreview:Number(selectedQuestionIndex||0); const hasCandidate=list.some((q)=>Number(q.index)===candidate); qp.value=String(hasCandidate?candidate:(list[0]?.index??0)); selectedQuestionIndex=Number(qp.value||0); }
 function renderGameInfo(){ const box=byId('gameInfo'); const g=GAME_RULES[selectedGame]; if(!g){box.style.display='none';box.innerHTML=''; return;} box.style.display=''; box.innerHTML=`<h4>${g.title}</h4><p><strong>Règle:</strong> ${g.rules}</p><p><strong>Points:</strong> ${g.points}</p>`; byId('gameBAdminConfig').style.display=selectedGame==='GAME_B'?'':'none'; byId('gameCAdminConfig').style.display=selectedGame==='GAME_C'?'':'none'; byId('gameDAdminConfig').style.display=selectedGame==='GAME_D'?'':'none'; cmd('GAME_PREVIEW',{game:selectedGame}); }
 function renderGameDAdmin(s){
   const wrap=byId('gameDAnswers'); if(!wrap) return;
@@ -87,10 +87,10 @@ function renderResults(s){
   byId('results').style.display=''; byId('top3').innerHTML=`<li>Résultats ${r.game||''}</li>`; byId('impactList').innerHTML=`<li><pre>${JSON.stringify(r,null,2)}</pre></li>`;
 }
 function render(s){
-  state=s; selectedGame=byId('gamePicker')?.value||selectedGame||s.previewGame?.game||''; byId('phase').textContent=s.phase; byId('toggleTvMute').textContent=s.tvMuted?'TV: Démuter':'TV: Muter';
+  state=s; selectedGame=selectedGame||s.previewGame?.game||byId('gamePicker')?.value||''; byId('phase').textContent=s.phase; byId('toggleTvMute').textContent=s.tvMuted?'TV: Démuter':'TV: Muter';
   fillGamePicker(s); fillQuestionPicker(s); renderGameInfo();
   const roster=byId('roster'); roster.innerHTML='';
-  s.rankings.forEach((p)=>{ const li=document.createElement('li'); li.innerHTML=`<div>#${p.rank} <strong>${p.name}</strong> <span class='small'>(${p.animal})</span> ${p.eliminated?'🪦':''}</div><div class='grid'>${arrowControls(p)}${scoreControls(p)}</div>`; roster.appendChild(li); });
+  s.rankings.forEach((p)=>{ const li=document.createElement('li'); const isConnected=p.status==='CONNECTED'; li.innerHTML=`<div><span class='status-dot ${isConnected?'connected':'disconnected'}' title='${isConnected?'Connecté':'Déconnecté'}'></span>#${p.rank} <strong>${p.name}</strong> <span class='small'>(${p.animal})</span> <span class='small'>${isConnected?'Connecté':'Déconnecté'}</span> ${p.eliminated?'🪦':''}</div><div class='grid'>${arrowControls(p)}${scoreControls(p)}</div>`; roster.appendChild(li); });
   const audioErr=byId('tvAudioError');
   if(s.lastTvAudioError){ audioErr.style.display=''; audioErr.textContent=`⚠️ Audio TV: ${s.lastTvAudioError.reason} (${new Date(s.lastTvAudioError.at).toLocaleTimeString()})`; }
   else { audioErr.style.display='none'; audioErr.textContent=''; }
@@ -125,9 +125,8 @@ function render(s){
   renderGameDAdmin(s); renderGameGAdmin(s); renderGameFAdmin(s); renderResults(s);
 }
 
-byId('gamePicker').onchange=()=>fillQuestionPicker(state||{});
-byId('gamePicker').onchange=()=>{selectedGame=byId('gamePicker').value||''; fillQuestionPicker(state||{}); renderGameInfo(); if(byId('gameBAdminConfig')) byId('gameBAdminConfig').style.display=selectedGame==='GAME_B'?'':'none'; cmd('PREVIEW_GAME',{game:selectedGame,questionIndex:Number(byId('questionPicker').value||0)});};
-byId('questionPicker').onchange=()=>cmd('PREVIEW_GAME',{game:byId('gamePicker').value,questionIndex:Number(byId('questionPicker').value||0)});
+byId('gamePicker').onchange=()=>{selectedGame=byId('gamePicker').value||''; fillQuestionPicker(state||{}); selectedQuestionIndex=Number(byId('questionPicker').value||0); renderGameInfo(); if(byId('gameBAdminConfig')) byId('gameBAdminConfig').style.display=selectedGame==='GAME_B'?'':'none'; cmd('PREVIEW_GAME',{game:selectedGame,questionIndex:selectedQuestionIndex});};
+byId('questionPicker').onchange=()=>{ selectedQuestionIndex=Number(byId('questionPicker').value||0); cmd('PREVIEW_GAME',{game:byId('gamePicker').value,questionIndex:selectedQuestionIndex}); };
 byId('login').onclick=()=>socket.emit('admin:auth',{password:byId('pwd').value},(r)=>{if(!r?.ok)return alert('Mot de passe incorrect');byId('auth').style.display='none';byId('dash').style.display='';render(r.state); cmd('PREVIEW_GAME',{game:byId('gamePicker').value,questionIndex:Number(byId('questionPicker').value||0)});});
 byId('launchGame').onclick=()=>cmd('LAUNCH_GAME',{game:byId('gamePicker').value,questionIndex:Number(byId('questionPicker').value||0),count:Number(byId('gameBCount')?.value||1),seconds:Number(byId('gameBSeconds')?.value||20)},(r)=>{if(!r?.ok) alert(r.error||'Launch impossible');});
 byId('showResults').onclick=()=>cmd('SHOW_RESULTS',{},(r)=>{if(!r?.ok) alert(r.error||'Action impossible');});
