@@ -239,7 +239,7 @@
           byId('ack').textContent = 'En attente d\'autres joueurs pour voter.';
         }
         select.addEventListener('change', () => {
-          submit.disabled = !voteTargets.includes(select.value);
+          submit.disabled = !select.value;
         });
         submit.onclick = () => {
           if (!voteTargets.includes(select.value)) {
