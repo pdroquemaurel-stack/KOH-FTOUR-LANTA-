@@ -1,88 +1,127 @@
 <!doctype html>
 <html lang="fr">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Aventurier</title>
-  <link rel="stylesheet" href="/style.css" />
-</head>
-<body class="join-page">
-  <div class="container">
-    <h1 id="mobileTitle" class="title">🌴 Aventurier</h1>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Aventurier</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body class="join-page">
+    <div class="container">
+      <h1 id="mobileTitle" class="title">🌴 Aventurier</h1>
 
-    <section id="form" class="panel">
-      <div class="grid">
-        <input id="name" placeholder="Pseudo" maxlength="24" required />
+      <section id="form" class="panel">
+        <div class="grid">
+          <input id="name" placeholder="Pseudo" maxlength="24" required />
 
-        <div class="character-picker">
-          <p class="small">Choisis ton personnage</p>
-          <div class="character-carousel-wrap">
-            <button id="characterPrev" class="secondary" type="button" aria-label="Personnage précédent">◀</button>
-            <div id="characterTrack" class="character-track" aria-live="polite"></div>
-            <button id="characterNext" class="secondary" type="button" aria-label="Personnage suivant">▶</button>
+          <div class="character-picker">
+            <p class="small">Choisis ton personnage</p>
+            <div class="character-carousel-wrap">
+              <button
+                id="characterPrev"
+                class="secondary"
+                type="button"
+                aria-label="Personnage précédent"
+              >
+                ◀
+              </button>
+              <div
+                id="characterTrack"
+                class="character-track"
+                aria-live="polite"
+              ></div>
+              <button
+                id="characterNext"
+                class="secondary"
+                type="button"
+                aria-label="Personnage suivant"
+              >
+                ▶
+              </button>
+            </div>
           </div>
+
+          <button id="join" type="button">Rejoindre</button>
         </div>
+      </section>
 
-        <button id="join" type="button">Rejoindre</button>
-      </div>
-    </section>
+      <section id="play" class="panel mt" style="display: none">
+        <p id="phase"></p>
+        <div id="action"></div>
+        <p id="ack" class="small"></p>
+        <div id="scoreBadge" class="score-badge score-bottom">0 pt</div>
+      </section>
+    </div>
 
-    <section id="play" class="panel mt" style="display:none">
-      <p id="phase"></p>
-      <div id="action"></div>
-      <p id="ack" class="small"></p>
-      <div id="scoreBadge" class="score-badge score-bottom">0 pt</div>
-    </section>
-  </div>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const socket = io({ transports: ["websocket", "polling"] });
+      const KEY = "kla_singleton_player_v2";
+      let me = null,
+        st = null;
+      let answerUiState = { key: "", values: {}, validated: false };
+      let lastContextKey = "";
+      let gameAVoteConfirmedTargetId = "";
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script>
-    const socket = io({ transports: ['websocket', 'polling'] });
-    const KEY = 'kla_singleton_player_v2';
-    let me = null, st = null;
-    let answerUiState = { key: '', values: {}, validated: false };
-    let lastContextKey='';
-    let gameAVoteConfirmedTargetId = '';
+      const CHARACTERS = [
+        { file: "Visuels/joueur/Lion rouge sang.webp", color: "#8A0303" },
+        { file: "Visuels/joueur/serpent emeraude.webp", color: "#50C878" },
+        { file: "Visuels/joueur/Elephant violet.webp", color: "#7F00FF" },
+        { file: "Visuels/joueur/perroquet jaune.webp", color: "#FFD300" },
+        { file: "Visuels/joueur/loup noir.webp", color: "#000000" },
+        { file: "Visuels/joueur/panda bleu.webp", color: "#1E3A8A" },
+        { file: "Visuels/joueur/gorille vert.webp", color: "#228B22" },
+        { file: "Visuels/joueur/renard orange.webp", color: "#FF6A00" },
+        { file: "Visuels/joueur/tigre rouge.webp", color: "#D62828" },
+        { file: "Visuels/joueur/Sanglier marron.webp", color: "#6B3E26" },
+      ];
 
-    const CHARACTERS = [
-      { file: 'Visuels/joueur/Lion rouge sang.webp', color: '#8A0303' },
-      { file: 'Visuels/joueur/serpent emeraude.webp', color: '#50C878' },
-      { file: 'Visuels/joueur/Elephant violet.webp', color: '#7F00FF' },
-      { file: 'Visuels/joueur/perroquet jaune.webp', color: '#FFD300' },
-      { file: 'Visuels/joueur/loup noir.webp', color: '#000000' },
-      { file: 'Visuels/joueur/panda bleu.webp', color: '#1E3A8A' },
-      { file: 'Visuels/joueur/gorille vert.webp', color: '#228B22' },
-      { file: 'Visuels/joueur/renard orange.webp', color: '#FF6A00' },
-      { file: 'Visuels/joueur/tigre rouge.webp', color: '#D62828' },
-      { file: 'Visuels/joueur/Sanglier marron.webp', color: '#6B3E26' }
-    ];
+      let carouselIndex = 0;
+      let selectedCharacter = CHARACTERS[0].file;
+      let archeryAnim = {
+        running: false,
+        axis: "H",
+        horizontal: 0,
+        vertical: 0,
+        dir: 1,
+        raf: null,
+      };
 
-    let carouselIndex = 0;
-    let selectedCharacter = CHARACTERS[0].file;
-    let archeryAnim = { running: false, axis: 'H', horizontal: 0, vertical: 0, dir: 1, raf: null };
+      const byId = (id) => document.getElementById(id);
+      const save = (v) => localStorage.setItem(KEY, JSON.stringify(v));
+      const load = () => {
+        try {
+          return JSON.parse(localStorage.getItem(KEY) || "null");
+        } catch {
+          return null;
+        }
+      };
 
-    const byId = id => document.getElementById(id);
-    const save = v => localStorage.setItem(KEY, JSON.stringify(v));
-    const load = () => { try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { return null; } };
+      function normalizeIndex(index) {
+        return (
+          ((index % CHARACTERS.length) + CHARACTERS.length) % CHARACTERS.length
+        );
+      }
 
-    function normalizeIndex(index) {
-      return ((index % CHARACTERS.length) + CHARACTERS.length) % CHARACTERS.length;
-    }
-
-    function renderCharacterCarousel() {
-      const track = byId('characterTrack');
-      if (!track) return;
-      const offsets = [-1, 0, 1];
-      track.innerHTML = offsets.map((offset) => {
-        const idx = normalizeIndex(carouselIndex + offset);
-        const c = CHARACTERS[idx];
-        const isCenter = offset === 0;
-        const selectedClass = c.file === selectedCharacter ? ' selected' : '';
-        const characterLabel = c.file.split('/').pop().replace(/\.(png|webp)$/i, '');
-        return `
+      function renderCharacterCarousel() {
+        const track = byId("characterTrack");
+        if (!track) return;
+        const offsets = [-1, 0, 1];
+        track.innerHTML = offsets
+          .map((offset) => {
+            const idx = normalizeIndex(carouselIndex + offset);
+            const c = CHARACTERS[idx];
+            const isCenter = offset === 0;
+            const selectedClass =
+              c.file === selectedCharacter ? " selected" : "";
+            const characterLabel = c.file
+              .split("/")
+              .pop()
+              .replace(/\.(png|webp)$/i, "");
+            return `
           <button
             type="button"
-            class="character-card ${isCenter ? 'center' : ''}${selectedClass}"
+            class="character-card ${isCenter ? "center" : ""}${selectedClass}"
             data-index="${idx}"
             style="--character-color:${c.color}"
             aria-label="Sélectionner ${characterLabel}"
@@ -92,305 +131,556 @@
             </div>
           </button>
         `;
-      }).join('');
+          })
+          .join("");
 
-      track.querySelectorAll('.character-card').forEach((el) => {
-        el.onclick = () => {
-          const idx = Number(el.dataset.index);
-          if (Number.isNaN(idx)) return;
-          carouselIndex = idx;
-          selectedCharacter = CHARACTERS[idx].file;
-          renderCharacterCarousel();
-        };
-      });
-    }
-
-    function joined(p) {
-      me = p;
-      byId('form').style.display = 'none';
-      byId('play').style.display = '';
-      byId('mobileTitle').textContent = `🌴 ${p.name}`;
-    }
-
-    function send(type, payload, done) {
-      socket.emit('game:action', { type, payload }, (r) => {
-        const ack = byId('ack');
-        if (r?.ok) { ack.classList.remove('error-msg'); ack.textContent = '✅ Réponse envoyée'; done&&done(true); return; }
-        if (r?.error === 'NO_SELF_VOTE') { ack.classList.add('error-msg'); ack.textContent = "T'es idiot ou quoi ? tu vas pas voter pour toi même"; return; }
-        if (r?.error === 'NO_ARROWS_LEFT') { ack.classList.add('error-msg'); ack.textContent = "❌ Tu n'as plus de flèche, tu ne peux plus jouer."; return; }
-        ack.classList.add('error-msg'); ack.textContent = `❌ ${r?.error || 'Erreur'}`;
-        done&&done(false);
-      });
-    }
-
-
-    function clearAck() {
-      const ack = byId('ack');
-      ack.classList.remove('error-msg');
-      ack.textContent = '';
-    }
-
-    function playerList() {
-      return (st?.rankings || [])
-        .filter((p) => !p.eliminated)
-        .map((p) => `<option value='${p.playerId}'>${p.name}</option>`)
-        .join('');
-    }
-
-    function playerListFromIds(ids = []) {
-      const byPid = new Map((st?.rankings || []).map((p) => [p.playerId, p]));
-      const placeholder = "<option value='' selected>Sélectionner un joueur</option>";
-      return ids
-        .map((pid) => byPid.get(pid))
-        .filter((p) => p && !p.eliminated)
-        .map((p) => `<option value='${p.playerId}'>${p.name}</option>`)
-        .reduce((acc, option) => acc + option, placeholder);
-    }
-
-    function updateScore() {
-      if (!st || !me) return;
-      const meState = (st.rankings || []).find((p) => p.playerId === me.playerId);
-      byId('scoreBadge').textContent = `${meState?.score || 0} pt`;
-    }
-
-    function stopArcheryAnim() { if (archeryAnim.raf) { cancelAnimationFrame(archeryAnim.raf); archeryAnim.raf = null; } archeryAnim.running = false; }
-    function startArcheryAnim() {
-      if (archeryAnim.running) return;
-      archeryAnim.running = true;
-      const tick = () => {
-        if (!archeryAnim.running) return;
-        const speed = 2.8;
-        if (archeryAnim.axis === 'H') {
-          archeryAnim.horizontal += speed * archeryAnim.dir;
-          if (archeryAnim.horizontal >= 100) { archeryAnim.horizontal = 100; archeryAnim.dir = -1; }
-          if (archeryAnim.horizontal <= -100) { archeryAnim.horizontal = -100; archeryAnim.dir = 1; }
-        } else {
-          archeryAnim.vertical += speed * archeryAnim.dir;
-          if (archeryAnim.vertical >= 100) { archeryAnim.vertical = 100; archeryAnim.dir = -1; }
-          if (archeryAnim.vertical <= -100) { archeryAnim.vertical = -100; archeryAnim.dir = 1; }
-        }
-        const marker = byId('archeryMarker');
-        if (marker) {
-          marker.style.left = `${50 + (archeryAnim.horizontal / 2)}%`;
-          marker.style.top = `${50 - (archeryAnim.vertical / 2)}%`;
-        }
-        const phaseHint = byId('archeryHint');
-        if (phaseHint) { phaseHint.textContent = archeryAnim.axis === 'H' ? 'Ajustement axe horizontal...' : 'Ajustement axe vertical...'; }
-        archeryAnim.raf = requestAnimationFrame(tick);
-      };
-      archeryAnim.raf = requestAnimationFrame(tick);
-    }
-
-
-    function resetAnswerState(newKey) {
-      if (answerUiState.key !== newKey) answerUiState = { key: newKey, values: {}, validated: false };
-    }
-
-    function renderArrowsBottom(arrows) {
-      const total = 2;
-      const intact = Math.max(0, Math.min(total, Number(arrows ?? 2)));
-      const broken = total - intact;
-      return `<div class='archery-arrows-bottom'>${'<img src="/Visuels/archery_arrow_intact.png" alt="flèche intacte"/>'.repeat(intact)}${'<img src="/Visuels/archery_arrow_broken.png" alt="flèche cassée"/>'.repeat(broken)}</div>`;
-    }
-
-    function renderAction() {
-      if (!st || !me) return;
-      const phase = st.phase;
-      byId('phase').textContent = phase === 'GAME_F' ? '' : `Phase: ${phase}`;
-      const a = byId('action');
-      const gs = st.gameState || {};
-      const ctx=`${phase}|${gs.currentIndex||''}|${gs.prompt||gs.question||gs.item||gs.theme||''}`;
-      const sameContext = ctx===lastContextKey;
-      if(!sameContext){ byId('ack').textContent=''; byId('ack').classList.remove('error-msg'); lastContextKey=ctx; gameAVoteConfirmedTargetId=''; }
-      const active = document.activeElement;
-      const interactingInsideAction = active && ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(active.tagName) && a.contains(active);
-      if (sameContext && interactingInsideAction && !st.resultsShown) {
-        return;
-      }
-      document.body.classList.toggle('archery-active', phase === 'GAME_F');
-      if (!['GAME_B','GAME_C','GAME_D','FINAL'].includes(phase)) answerUiState = { key: '', values: {}, validated: false };
-      if (st.resultsShown) {
-        if (phase === 'GAME_F' && gs.results?.winner === me.playerId && Number(gs.results?.winnerBonus||0) > 0) { a.innerHTML = `<p class='plus'>🏆 Tu es le dernier avec des flèches : +${gs.results.winnerBonus} points</p>`; return; }
-        a.innerHTML = '<p>Résultats affichés: réponses fermées.</p>'; return; }
-      if (phase === 'GAME_A') {
-        const eligibleTargets = Array.isArray(gs.eligibleTargets) && gs.eligibleTargets.length
-          ? gs.eligibleTargets
-          : (st.rankings || []).filter((p) => !p.eliminated).map((p) => p.playerId);
-        const voteTargets = eligibleTargets.filter((pid) => pid !== me.playerId);
-        const byPid = new Map((st.rankings || []).map((p) => [p.playerId, p.name]));
-        const confirmedTargetId = String(gs.answers?.[me.playerId] || gameAVoteConfirmedTargetId || '');
-        const confirmedTargetName = byPid.get(confirmedTargetId) || confirmedTargetId;
-
-        if (confirmedTargetId) {
-          a.innerHTML = `<select id='t' disabled>${playerListFromIds(eligibleTargets)}</select><p class='plus'>✅ Vous avez bien voté pour ${confirmedTargetName}</p>`;
-          const select = byId('t');
-          if (select && voteTargets.includes(confirmedTargetId)) select.value = confirmedTargetId;
-          return;
-        }
-
-        a.innerHTML = `<select id='t'>${playerListFromIds(eligibleTargets)}</select><button id='s'>Voter</button>`;
-        const select = byId('t');
-        const submit = byId('s');
-        submit.disabled = true;
-        if (!voteTargets.length) {
-          select.disabled = true;
-          submit.disabled = true;
-          byId('ack').classList.remove('error-msg');
-          byId('ack').textContent = 'En attente d\'autres joueurs pour voter.';
-        }
-        select.addEventListener('change', () => {
-          submit.disabled = !select.value;
+        track.querySelectorAll(".character-card").forEach((el) => {
+          el.onclick = () => {
+            const idx = Number(el.dataset.index);
+            if (Number.isNaN(idx)) return;
+            carouselIndex = idx;
+            selectedCharacter = CHARACTERS[idx].file;
+            renderCharacterCarousel();
+          };
         });
-        submit.onclick = () => {
-          if (!voteTargets.includes(select.value)) {
-            if (select.value === me.playerId) {
-              const ack = byId('ack');
-              ack.classList.add('error-msg');
-              ack.textContent = "T'es idiot ou quoi ? tu vas pas voter pour toi même";
-            }
+      }
+
+      function joined(p) {
+        me = p;
+        byId("form").style.display = "none";
+        byId("play").style.display = "";
+        byId("mobileTitle").textContent = `🌴 ${p.name}`;
+      }
+
+      function send(type, payload, done) {
+        socket.emit("game:action", { type, payload }, (r) => {
+          const ack = byId("ack");
+          if (r?.ok) {
+            ack.classList.remove("error-msg");
+            ack.textContent = "✅ Réponse envoyée";
+            done && done(true);
             return;
           }
+          if (r?.error === "NO_SELF_VOTE") {
+            ack.classList.add("error-msg");
+            ack.textContent =
+              "T'es idiot ou quoi ? tu vas pas voter pour toi même";
+            return;
+          }
+          if (r?.error === "NO_ARROWS_LEFT") {
+            ack.classList.add("error-msg");
+            ack.textContent =
+              "❌ Tu n'as plus de flèche, tu ne peux plus jouer.";
+            return;
+          }
+          ack.classList.add("error-msg");
+          ack.textContent = `❌ ${r?.error || "Erreur"}`;
+          done && done(false);
+        });
+      }
+
+      function clearAck() {
+        const ack = byId("ack");
+        ack.classList.remove("error-msg");
+        ack.textContent = "";
+      }
+
+      function playerList() {
+        return (st?.rankings || [])
+          .filter((p) => !p.eliminated)
+          .map((p) => `<option value='${p.playerId}'>${p.name}</option>`)
+          .join("");
+      }
+
+      function playerListFromIds(ids = []) {
+        const byPid = new Map((st?.rankings || []).map((p) => [p.playerId, p]));
+        const placeholder =
+          "<option value='' selected>Sélectionner un joueur</option>";
+        return ids
+          .map((pid) => byPid.get(pid))
+          .filter((p) => p && !p.eliminated)
+          .map((p) => `<option value='${p.playerId}'>${p.name}</option>`)
+          .reduce((acc, option) => acc + option, placeholder);
+      }
+
+      function updateScore() {
+        if (!st || !me) return;
+        const meState = (st.rankings || []).find(
+          (p) => p.playerId === me.playerId,
+        );
+        byId("scoreBadge").textContent = `${meState?.score || 0} pt`;
+      }
+
+      function hasSubmittedCurrent() {
+        if (!st || !me) return false;
+        const pid = me.playerId;
+        const gs = st.gameState || {};
+        if (st.phase === "GAME_B")
+          return !!gs.answersByQuestion?.[gs.currentIndex || 0]?.[pid];
+        if (st.phase === "GAME_F")
+          return (
+            typeof gs.shots?.[pid]?.horizontal === "number" &&
+            typeof gs.shots?.[pid]?.vertical === "number"
+          );
+        return (st.gameProgress?.answeredPlayerIds || []).includes(pid);
+      }
+
+      function stopArcheryAnim() {
+        if (archeryAnim.raf) {
+          cancelAnimationFrame(archeryAnim.raf);
+          archeryAnim.raf = null;
+        }
+        archeryAnim.running = false;
+      }
+      function startArcheryAnim() {
+        if (archeryAnim.running) return;
+        archeryAnim.running = true;
+        let lastTs = performance.now();
+        const tick = (ts) => {
+          if (!archeryAnim.running) return;
+          const dt = Math.max(0.6, Math.min(2.2, (ts - lastTs) / 16.67));
+          lastTs = ts;
+          const speed = 2.2 * dt;
+          if (archeryAnim.axis === "H") {
+            archeryAnim.horizontal += speed * archeryAnim.dir;
+            if (archeryAnim.horizontal >= 100) {
+              archeryAnim.horizontal = 100;
+              archeryAnim.dir = -1;
+            }
+            if (archeryAnim.horizontal <= -100) {
+              archeryAnim.horizontal = -100;
+              archeryAnim.dir = 1;
+            }
+          } else {
+            archeryAnim.vertical += speed * archeryAnim.dir;
+            if (archeryAnim.vertical >= 100) {
+              archeryAnim.vertical = 100;
+              archeryAnim.dir = -1;
+            }
+            if (archeryAnim.vertical <= -100) {
+              archeryAnim.vertical = -100;
+              archeryAnim.dir = 1;
+            }
+          }
+          const marker = byId("archeryMarker");
+          if (marker) {
+            marker.style.left = `${50 + archeryAnim.horizontal / 2}%`;
+            marker.style.top = `${50 - archeryAnim.vertical / 2}%`;
+          }
+          const phaseHint = byId("archeryHint");
+          if (phaseHint) {
+            phaseHint.textContent =
+              archeryAnim.axis === "H"
+                ? "Ajustement axe horizontal..."
+                : "Ajustement axe vertical...";
+          }
+          archeryAnim.raf = requestAnimationFrame(tick);
+        };
+        archeryAnim.raf = requestAnimationFrame(tick);
+      }
+
+      function resetAnswerState(newKey) {
+        if (answerUiState.key !== newKey)
+          answerUiState = { key: newKey, values: {}, validated: false };
+      }
+
+      function renderArrowsBottom(arrows) {
+        const total = 2;
+        const intact = Math.max(0, Math.min(total, Number(arrows ?? 2)));
+        const broken = total - intact;
+        return `<div class='archery-arrows-bottom'>${'<img src="/Visuels/archery_arrow_intact.png" alt="flèche intacte"/>'.repeat(intact)}${'<img src="/Visuels/archery_arrow_broken.png" alt="flèche cassée"/>'.repeat(broken)}</div>`;
+      }
+
+      function renderAction() {
+        if (!st || !me) return;
+        const phase = st.phase;
+        byId("phase").textContent = phase === "GAME_F" ? "" : `Phase: ${phase}`;
+        const a = byId("action");
+        const gs = st.gameState || {};
+        const ctx = `${phase}|${gs.currentIndex || ""}|${gs.prompt || gs.question || gs.item || gs.theme || ""}`;
+        const sameContext = ctx === lastContextKey;
+        if (!sameContext) {
+          byId("ack").textContent = "";
+          byId("ack").classList.remove("error-msg");
+          lastContextKey = ctx;
+          gameAVoteConfirmedTargetId = "";
+        }
+        const active = document.activeElement;
+        const interactingInsideAction =
+          active &&
+          ["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(active.tagName) &&
+          a.contains(active);
+        if (sameContext && interactingInsideAction && !st.resultsShown) {
+          return;
+        }
+        document.body.classList.toggle("archery-active", phase === "GAME_F");
+        if (!["GAME_B", "GAME_C", "GAME_D", "FINAL"].includes(phase))
+          answerUiState = { key: "", values: {}, validated: false };
+        if (st.resultsShown) {
+          if (
+            phase === "GAME_F" &&
+            gs.results?.winner === me.playerId &&
+            Number(gs.results?.winnerBonus || 0) > 0
+          ) {
+            a.innerHTML = `<p class='plus'>🏆 Tu es le dernier avec des flèches : +${gs.results.winnerBonus} points</p>`;
+            return;
+          }
+          a.innerHTML = "<p>Résultats affichés: réponses fermées.</p>";
+          return;
+        }
+        if (phase === "GAME_A") {
+          const eligibleTargets =
+            Array.isArray(gs.eligibleTargets) && gs.eligibleTargets.length
+              ? gs.eligibleTargets
+              : (st.rankings || [])
+                  .filter((p) => !p.eliminated)
+                  .map((p) => p.playerId);
+          const voteTargets = eligibleTargets.filter(
+            (pid) => pid !== me.playerId,
+          );
+          const byPid = new Map(
+            (st.rankings || []).map((p) => [p.playerId, p.name]),
+          );
+          const confirmedTargetId = String(
+            gs.answers?.[me.playerId] || gameAVoteConfirmedTargetId || "",
+          );
+          const confirmedTargetName =
+            byPid.get(confirmedTargetId) || confirmedTargetId;
+
+          if (confirmedTargetId) {
+            a.innerHTML = `<select id='t' disabled>${playerListFromIds(eligibleTargets)}</select><p class='plus'>✅ Vous avez bien voté pour ${confirmedTargetName}</p>`;
+            const select = byId("t");
+            if (select && voteTargets.includes(confirmedTargetId))
+              select.value = confirmedTargetId;
+            return;
+          }
+
+          a.innerHTML = `<select id='t'>${playerListFromIds(eligibleTargets)}</select><button id='s'>Voter</button>`;
+          const select = byId("t");
+          const submit = byId("s");
           submit.disabled = true;
-          send('A_VOTE', { targetPlayerId: select.value }, (ok) => {
-            if (ok) {
-              gameAVoteConfirmedTargetId = select.value;
-              renderAction();
+          if (!voteTargets.length) {
+            select.disabled = true;
+            submit.disabled = true;
+            byId("ack").classList.remove("error-msg");
+            byId("ack").textContent = "En attente d'autres joueurs pour voter.";
+          }
+          select.addEventListener("change", () => {
+            submit.disabled = !select.value;
+          });
+          submit.onclick = () => {
+            if (!voteTargets.includes(select.value)) {
+              if (select.value === me.playerId) {
+                const ack = byId("ack");
+                ack.classList.add("error-msg");
+                ack.textContent =
+                  "T'es idiot ou quoi ? tu vas pas voter pour toi même";
+              }
               return;
             }
-            submit.disabled = false;
-          });
-        };
-      }
-      else if (phase === 'GAME_B') {
-        const k = `B|${gs.currentIndex ?? -1}|${gs.questions?.[gs.currentIndex]?.prompt || ''}`;
-        resetAnswerState(k);
-        const qIdx = Number(gs.currentIndex ?? -1);
-        const serverAnswer = gs.answersByQuestion?.[qIdx]?.[me.playerId]?.answer;
-        const submitted = answerUiState.validated || typeof serverAnswer === 'string';
-        const v = typeof serverAnswer === 'string' ? serverAnswer : (answerUiState.values.ans || '');
-        a.innerHTML = `<input id='ans' class='${submitted ? 'answer-validated' : ''}' placeholder='Ta réponse' value="${String(v).replace(/"/g,'&quot;')}" ${submitted ? 'readonly' : ''}/>${submitted ? '' : "<button id='s'>Valider</button>"}<p class='small'>${submitted ? '✅ Réponse validée' : ''}</p>`;
-        if (submitted) { answerUiState.values.ans = v; answerUiState.validated = true; return; }
-        byId('ans')?.addEventListener('input', (ev) => { answerUiState.values.ans = ev.target.value; answerUiState.validated = false; ev.target.classList.remove('answer-validated'); const sm=a.querySelector('.small'); if(sm) sm.textContent=''; });
-        byId('s').onclick = () => send('B_ANSWER', { answer: byId('ans').value }, (ok) => { if (ok) { answerUiState.values.ans = byId('ans').value; answerUiState.validated = true; renderAction(); } });
-      }
-      else if (phase === 'GAME_C') {
-        const k = `C|${gs.item || ''}|${gs.realPrice || 0}`;
-        resetAnswerState(k);
-        const current = Number(answerUiState.values.g ?? gs.realPrice ?? 100);
-        const real = Math.max(1, Number(gs.realPrice||100));
-        const min = Math.max(1, Math.round(real * 0.05));
-        const max = Math.max(min + 10, Math.round(real * 5));
-        a.innerHTML = `<label class='small'>Ton prix en dirham après négo et énervement</label><input id='gSlider' type='range' min='${min}' max='${max}' value='${current}'/><input id='g' class='${answerUiState.validated ? 'answer-validated' : ''}' type='number' min='${min}' max='${max}' value='${current}'/><button id='s'>Valider</button><p class='small'>${answerUiState.validated ? '✅ Réponse validée' : ''}</p>`;
-        const sync = (val)=>{ answerUiState.values.g = Number(val||0); answerUiState.validated=false; const g=byId('g'); const sl=byId('gSlider'); if(g) g.value=String(answerUiState.values.g); if(sl) sl.value=String(answerUiState.values.g); };
-        byId('gSlider')?.addEventListener('input',(ev)=>sync(ev.target.value));
-        byId('g')?.addEventListener('input',(ev)=>sync(ev.target.value));
-        byId('s').onclick = () => send('C_GUESS', { value: Number(byId('g').value) }, (ok) => { if (ok) { answerUiState.values.g = Number(byId('g').value); answerUiState.validated = true; renderAction(); } });
-      }
-      else if (phase === 'GAME_D') {
-        const k = `D|${gs.prompt || ''}|${gs.index || 0}`;
-        resetAnswerState(k);
-        const title = answerUiState.values.title || '', artist = answerUiState.values.artist || '';
-        a.innerHTML = `<p class='small'>Blind test : trouve le titre et l'artiste</p><input id='dTitle' class='${answerUiState.validated ? 'answer-validated' : ''}' placeholder='Titre' value="${String(title).replace(/"/g,'&quot;')}"/><input id='dArtist' class='${answerUiState.validated ? 'answer-validated' : ''}' placeholder='Artiste' value="${String(artist).replace(/"/g,'&quot;')}"/><button id='s'>Valider</button><p class='small'>${answerUiState.validated ? '✅ Réponse validée' : ''}</p>`;
-        byId('dTitle')?.addEventListener('input',(ev)=>{answerUiState.values.title=ev.target.value; answerUiState.validated=false;});
-        byId('dArtist')?.addEventListener('input',(ev)=>{answerUiState.values.artist=ev.target.value; answerUiState.validated=false;});
-        byId('s').onclick = () => send('D_BLIND', { title: byId('dTitle').value, artist: byId('dArtist').value }, (ok) => { if (ok) { answerUiState.values={title:byId('dTitle').value,artist:byId('dArtist').value}; answerUiState.validated=true; renderAction(); } });
-      }
-      else if (phase === 'GAME_C') { const max=Math.max(0, Number(gs.maxPrice||0)); a.innerHTML = `<label for='g'>Ton prix: <strong id='gVal'>0 dh</strong></label><input id='g' type='range' min='0' max='${max}' step='1' value='0'/><button id='s'>Valider</button>`; const g=byId('g'); const gVal=byId('gVal'); g.oninput=()=>{gVal.textContent=`${g.value} dh`;}; byId('s').onclick = () => send('C_GUESS', { value: Number(g.value) }); }
-      else if (phase === 'GAME_D') { a.innerHTML = `<p>🎧 Blind test en cours. Attends l'attribution des points par l'admin.</p>`; }
-      else if (phase === 'GAME_E') { a.innerHTML = `<div class='grid grid-2'><button id='sh'>Partager</button><button id='be' class='danger'>Trahir</button></div>`; byId('sh').onclick = () => send('E_CHOICE', { choice: 'SHARE' }); byId('be').onclick = () => send('E_CHOICE', { choice: 'BETRAY' }); }
-      else if (phase === 'GAME_F') {
-        const meState = (st.rankings || []).find((p) => p.playerId === me.playerId) || {};
-        const shot = gs.shots?.[me.playerId] || {};
-        if ((meState.arrows ?? 2) <= 0) { stopArcheryAnim(); a.innerHTML = `<p class='error-msg'>Tu n'as plus de flèche, tu ne peux plus jouer.</p>${renderArrowsBottom(meState.arrows)}`; return; }
-        const alive = (st.rankings || []).filter((p) => (p.arrows ?? 2) > 0 && !p.eliminated);
-        if (gs.stage === 'BREAK_SELECT') {
-          stopArcheryAnim();
-          if (gs.closest !== me.playerId) { a.innerHTML = '<p>En attente du choix du meilleur tireur...</p>' + renderArrowsBottom(meState.arrows); return; }
-          const opts = alive.filter((p) => p.playerId !== me.playerId).map((p) => `<option value='${p.playerId}'>${p.name}</option>`).join('');
-          a.innerHTML = `<p>Tu es le plus proche 🎯 : choisis un joueur qui perd 1 flèche.</p><select id='bt'>${opts}</select><button id='s'>Casser une flèche</button>${renderArrowsBottom(meState.arrows)}`;
-          byId('s').onclick = () => send('F_BREAK_TARGET', { targetPlayerId: byId('bt').value });
-          return;
-        }
-        if (typeof shot.horizontal === 'number') archeryAnim.horizontal = shot.horizontal;
-        if (typeof shot.vertical === 'number') archeryAnim.vertical = shot.vertical;
-        if (typeof shot.horizontal === 'number' && typeof shot.vertical === 'number') {
-          stopArcheryAnim();
-          a.innerHTML = `<div class='archery-mobile-wrap'><div class='archery-mobile-target'><img src='/Visuels/archery_target_mobile.webp' alt='cible' loading='lazy' decoding='async' onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src=this.src.replace(/\.webp$/i,'.png');}"/><img id='archeryMarker' class='archery-mobile-marker' src='/Visuels/archery_arrow_marker.png' alt='marqueur' style='left:${50 + (archeryAnim.horizontal / 2)}%;top:${50 - (archeryAnim.vertical / 2)}%'/></div><p class='small'>Tir validé ✅</p></div>${renderArrowsBottom(meState.arrows)}`;
-          return;
-        }
-        if (typeof shot.horizontal === 'number') { archeryAnim.axis = 'V'; }
-        else { archeryAnim.axis = 'H'; archeryAnim.vertical = 0; }
-        archeryAnim.dir = 1;
-        a.innerHTML = `<div class='archery-mobile-wrap'><div class='archery-mobile-target'><img src='/Visuels/archery_target_mobile.webp' alt='cible' loading='lazy' decoding='async' onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src=this.src.replace(/\.webp$/i,'.png');}"/><img id='archeryMarker' class='archery-mobile-marker' src='/Visuels/archery_arrow_marker.png' alt='marqueur' style='left:${50 + (archeryAnim.horizontal / 2)}%;top:${50 - (archeryAnim.vertical / 2)}%'/></div><p id='archeryHint' class='small'>${archeryAnim.axis === 'H' ? 'Ajustement axe horizontal...' : 'Ajustement axe vertical...'}</p><button id='fireBtn'>Tirer</button></div>${renderArrowsBottom(meState.arrows)}`;
-        startArcheryAnim();
-        byId('fireBtn').onclick = () => {
-          if (archeryAnim.axis === 'H') {
-            send('F_AIM_HORIZONTAL', { value: Math.round(archeryAnim.horizontal) });
-            archeryAnim.axis = 'V';
-            archeryAnim.vertical = 0;
-            archeryAnim.dir = 1;
-          } else {
-            send('F_AIM_VERTICAL', { value: Math.round(archeryAnim.vertical) });
-            stopArcheryAnim();
-            const hint = byId('archeryHint'); if (hint) hint.textContent = 'Tir envoyé ✅';
-            const btn = byId('fireBtn'); if (btn) btn.disabled = true;
+            submit.disabled = true;
+            send("A_VOTE", { targetPlayerId: select.value }, (ok) => {
+              if (ok) {
+                gameAVoteConfirmedTargetId = select.value;
+                renderAction();
+                return;
+              }
+              submit.disabled = false;
+            });
+          };
+        } else if (phase === "GAME_B") {
+          const k = `B|${gs.currentIndex ?? -1}|${gs.questions?.[gs.currentIndex]?.prompt || ""}`;
+          resetAnswerState(k);
+          const qIdx = Number(gs.currentIndex ?? -1);
+          const serverAnswer =
+            gs.answersByQuestion?.[qIdx]?.[me.playerId]?.answer;
+          const submitted =
+            answerUiState.validated || typeof serverAnswer === "string";
+          const v =
+            typeof serverAnswer === "string"
+              ? serverAnswer
+              : answerUiState.values.ans || "";
+          a.innerHTML = `<p><strong>${gs.questions?.[gs.currentIndex]?.prompt || "Question en attente"}</strong></p><input id='ans' class='${submitted ? "answer-validated" : ""}' placeholder='Ta réponse' value="${String(v).replace(/"/g, "&quot;")}" ${submitted ? "readonly" : ""}/>${submitted ? "" : "<button id='s'>Valider</button>"}<p class='small'>${submitted ? "✅ Réponse validée" : ""}</p>`;
+          if (submitted) {
+            answerUiState.values.ans = v;
+            answerUiState.validated = true;
+            return;
           }
-        };
+          byId("ans")?.addEventListener("input", (ev) => {
+            answerUiState.values.ans = ev.target.value;
+            answerUiState.validated = false;
+            ev.target.classList.remove("answer-validated");
+            const sm = a.querySelector(".small");
+            if (sm) sm.textContent = "";
+          });
+          byId("s").onclick = () =>
+            send("B_ANSWER", { answer: byId("ans").value }, (ok) => {
+              if (ok) {
+                answerUiState.values.ans = byId("ans").value;
+                answerUiState.validated = true;
+                renderAction();
+              }
+            });
+        } else if (phase === "GAME_C") {
+          const k = `C|${gs.item || ""}|${gs.realPrice || 0}`;
+          resetAnswerState(k);
+          const current = Number(answerUiState.values.g ?? gs.realPrice ?? 100);
+          const real = Math.max(1, Number(gs.realPrice || 100));
+          const min = Math.max(1, Math.round(real * 0.05));
+          const max = Math.max(min + 10, Math.round(real * 5));
+          a.innerHTML = `<label class='small'>Ton prix en dirham après négo et énervement</label><input id='gSlider' type='range' min='${min}' max='${max}' value='${current}'/><input id='g' class='${answerUiState.validated ? "answer-validated" : ""}' type='number' min='${min}' max='${max}' value='${current}'/><button id='s'>Valider</button><p class='small'>${answerUiState.validated ? "✅ Réponse validée" : ""}</p>`;
+          const sync = (val) => {
+            answerUiState.values.g = Number(val || 0);
+            answerUiState.validated = false;
+            const g = byId("g");
+            const sl = byId("gSlider");
+            if (g) g.value = String(answerUiState.values.g);
+            if (sl) sl.value = String(answerUiState.values.g);
+          };
+          byId("gSlider")?.addEventListener("input", (ev) =>
+            sync(ev.target.value),
+          );
+          byId("g")?.addEventListener("input", (ev) => sync(ev.target.value));
+          byId("s").onclick = () =>
+            send("C_GUESS", { value: Number(byId("g").value) }, (ok) => {
+              if (ok) {
+                answerUiState.values.g = Number(byId("g").value);
+                answerUiState.validated = true;
+                renderAction();
+              }
+            });
+        } else if (phase === "GAME_D") {
+          const k = `D|${gs.prompt || ""}|${gs.index || 0}`;
+          resetAnswerState(k);
+          const title = answerUiState.values.title || "",
+            artist = answerUiState.values.artist || "";
+          a.innerHTML = `<p class='small'>Blind test : trouve le titre et l'artiste</p><input id='dTitle' class='${answerUiState.validated ? "answer-validated" : ""}' placeholder='Titre' value="${String(title).replace(/"/g, "&quot;")}"/><input id='dArtist' class='${answerUiState.validated ? "answer-validated" : ""}' placeholder='Artiste' value="${String(artist).replace(/"/g, "&quot;")}"/><button id='s'>Valider</button><p class='small'>${answerUiState.validated ? "✅ Réponse validée" : ""}</p>`;
+          byId("dTitle")?.addEventListener("input", (ev) => {
+            answerUiState.values.title = ev.target.value;
+            answerUiState.validated = false;
+          });
+          byId("dArtist")?.addEventListener("input", (ev) => {
+            answerUiState.values.artist = ev.target.value;
+            answerUiState.validated = false;
+          });
+          byId("s").onclick = () =>
+            send(
+              "D_BLIND",
+              { title: byId("dTitle").value, artist: byId("dArtist").value },
+              (ok) => {
+                if (ok) {
+                  answerUiState.values = {
+                    title: byId("dTitle").value,
+                    artist: byId("dArtist").value,
+                  };
+                  answerUiState.validated = true;
+                  renderAction();
+                }
+              },
+            );
+        } else if (phase === "GAME_C") {
+          const max = Math.max(0, Number(gs.maxPrice || 0));
+          a.innerHTML = `<label for='g'>Ton prix: <strong id='gVal'>0 dh</strong></label><input id='g' type='range' min='0' max='${max}' step='1' value='0'/><button id='s'>Valider</button>`;
+          const g = byId("g");
+          const gVal = byId("gVal");
+          g.oninput = () => {
+            gVal.textContent = `${g.value} dh`;
+          };
+          byId("s").onclick = () => send("C_GUESS", { value: Number(g.value) });
+        } else if (phase === "GAME_D") {
+          a.innerHTML = `<p>🎧 Blind test en cours. Attends l'attribution des points par l'admin.</p>`;
+        } else if (phase === "GAME_E") {
+          a.innerHTML = `<div class='grid grid-2'><button id='sh'>Partager</button><button id='be' class='danger'>Trahir</button></div>`;
+          byId("sh").onclick = () => send("E_CHOICE", { choice: "SHARE" });
+          byId("be").onclick = () => send("E_CHOICE", { choice: "BETRAY" });
+        } else if (phase === "GAME_F") {
+          const meState =
+            (st.rankings || []).find((p) => p.playerId === me.playerId) || {};
+          const shot = gs.shots?.[me.playerId] || {};
+          if ((meState.arrows ?? 2) <= 0) {
+            stopArcheryAnim();
+            a.innerHTML = `<p class='error-msg'>Tu n'as plus de flèche, tu ne peux plus jouer.</p>${renderArrowsBottom(meState.arrows)}`;
+            return;
+          }
+          const alive = (st.rankings || []).filter(
+            (p) => (p.arrows ?? 2) > 0 && !p.eliminated,
+          );
+          if (gs.stage === "BREAK_SELECT") {
+            stopArcheryAnim();
+            if (gs.closest !== me.playerId) {
+              a.innerHTML =
+                "<p>En attente du choix du meilleur tireur...</p>" +
+                renderArrowsBottom(meState.arrows);
+              return;
+            }
+            const opts = alive
+              .filter((p) => p.playerId !== me.playerId)
+              .map((p) => `<option value='${p.playerId}'>${p.name}</option>`)
+              .join("");
+            a.innerHTML = `<p>Tu es le plus proche 🎯 : choisis un joueur qui perd 1 flèche.</p><select id='bt'>${opts}</select><button id='s'>Casser une flèche</button>${renderArrowsBottom(meState.arrows)}`;
+            byId("s").onclick = () =>
+              send("F_BREAK_TARGET", { targetPlayerId: byId("bt").value });
+            return;
+          }
+          if (typeof shot.horizontal === "number")
+            archeryAnim.horizontal = shot.horizontal;
+          if (typeof shot.vertical === "number")
+            archeryAnim.vertical = shot.vertical;
+          if (
+            typeof shot.horizontal === "number" &&
+            typeof shot.vertical === "number"
+          ) {
+            stopArcheryAnim();
+            a.innerHTML = `<div class='archery-mobile-wrap'><div class='archery-mobile-target'><img src='/Visuels/archery_target_mobile.webp' alt='cible' loading='lazy' decoding='async' onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src=this.src.replace(/\.webp$/i,'.png');}"/><img id='archeryMarker' class='archery-mobile-marker' src='/Visuels/archery_arrow_marker.png' alt='marqueur' style='left:${50 + archeryAnim.horizontal / 2}%;top:${50 - archeryAnim.vertical / 2}%'/></div><p class='small'>Tir validé ✅</p></div>${renderArrowsBottom(meState.arrows)}`;
+            return;
+          }
+          if (typeof shot.horizontal === "number") {
+            archeryAnim.axis = "V";
+          } else {
+            archeryAnim.axis = "H";
+            archeryAnim.vertical = 0;
+          }
+          archeryAnim.dir = 1;
+          a.innerHTML = `<div class='archery-mobile-wrap'><div class='archery-mobile-target'><img src='/Visuels/archery_target_mobile.webp' alt='cible' loading='lazy' decoding='async' onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src=this.src.replace(/\.webp$/i,'.png');}"/><img id='archeryMarker' class='archery-mobile-marker' src='/Visuels/archery_arrow_marker.png' alt='marqueur' style='left:${50 + archeryAnim.horizontal / 2}%;top:${50 - archeryAnim.vertical / 2}%'/></div><p id='archeryHint' class='small'>${archeryAnim.axis === "H" ? "Ajustement axe horizontal..." : "Ajustement axe vertical..."}</p><button id='fireBtn'>Tirer</button></div>${renderArrowsBottom(meState.arrows)}`;
+          startArcheryAnim();
+          byId("fireBtn").onclick = () => {
+            if (archeryAnim.axis === "H") {
+              send("F_AIM_HORIZONTAL", {
+                value: Math.round(archeryAnim.horizontal),
+              });
+              archeryAnim.axis = "V";
+              archeryAnim.vertical = 0;
+              archeryAnim.dir = 1;
+            } else {
+              send("F_AIM_VERTICAL", {
+                value: Math.round(archeryAnim.vertical),
+              });
+              stopArcheryAnim();
+              const hint = byId("archeryHint");
+              if (hint) hint.textContent = "Tir envoyé ✅";
+              const btn = byId("fireBtn");
+              if (btn) btn.disabled = true;
+            }
+          };
+        } else if (phase === "GAME_G") {
+          a.innerHTML = "<p>En attente de l'annonce admin...</p>";
+        } else if (phase === "COUNCIL") {
+          a.innerHTML = `<select id='v'>${playerList()}</select><button id='s'>Voter secret</button>`;
+          byId("s").onclick = () =>
+            send("COUNCIL_VOTE", { targetPlayerId: byId("v").value });
+        } else if (phase === "FINAL") {
+          const finalist = (gs.finalists || []).includes(me.playerId);
+          if (!finalist) {
+            a.innerHTML = "<p>Tu n'es pas finaliste.</p>";
+            return;
+          }
+          const k = `FINAL|${gs.question || ""}`;
+          resetAnswerState(k);
+          const bet = answerUiState.values.bet ?? 0;
+          const ans = answerUiState.values.ans || "";
+          a.innerHTML = `<input id='bet' class='${answerUiState.validated ? "answer-validated" : ""}' type='number' min='0' max='5' placeholder='Mise 0-5' value='${bet}'/><input id='ans' class='${answerUiState.validated ? "answer-validated" : ""}' placeholder='Réponse finale' value="${String(ans).replace(/"/g, "&quot;")}"/><button id='s'>Valider</button><p class='small'>${answerUiState.validated ? "✅ Réponse validée" : ""}</p>`;
+          byId("bet")?.addEventListener("input", (ev) => {
+            answerUiState.values.bet = Number(ev.target.value || 0);
+            answerUiState.validated = false;
+          });
+          byId("ans")?.addEventListener("input", (ev) => {
+            answerUiState.values.ans = ev.target.value;
+            answerUiState.validated = false;
+          });
+          byId("s").onclick = () =>
+            send(
+              "FINAL_BET_ANSWER",
+              { bet: Number(byId("bet").value), answer: byId("ans").value },
+              (ok) => {
+                if (ok) {
+                  answerUiState.values = {
+                    bet: Number(byId("bet").value),
+                    ans: byId("ans").value,
+                  };
+                  answerUiState.validated = true;
+                  renderAction();
+                }
+              },
+            );
+        } else {
+          stopArcheryAnim();
+          a.innerHTML = "<p>En attente de la prochaine épreuve...</p>";
+        }
       }
-      else if (phase === 'GAME_G') { a.innerHTML = "<p>En attente de l'annonce admin...</p>"; }
-      else if (phase === 'COUNCIL') { a.innerHTML = `<select id='v'>${playerList()}</select><button id='s'>Voter secret</button>`; byId('s').onclick = () => send('COUNCIL_VOTE', { targetPlayerId: byId('v').value }); }
-      else if (phase === 'FINAL') { const finalist = (gs.finalists || []).includes(me.playerId); if (!finalist) { a.innerHTML = '<p>Tu n\'es pas finaliste.</p>'; return; } const k=`FINAL|${gs.question||''}`; resetAnswerState(k); const bet=answerUiState.values.bet??0; const ans=answerUiState.values.ans||''; a.innerHTML = `<input id='bet' class='${answerUiState.validated ? 'answer-validated' : ''}' type='number' min='0' max='5' placeholder='Mise 0-5' value='${bet}'/><input id='ans' class='${answerUiState.validated ? 'answer-validated' : ''}' placeholder='Réponse finale' value="${String(ans).replace(/"/g,'&quot;')}"/><button id='s'>Valider</button><p class='small'>${answerUiState.validated ? '✅ Réponse validée' : ''}</p>`; byId('bet')?.addEventListener('input',(ev)=>{answerUiState.values.bet=Number(ev.target.value||0);answerUiState.validated=false;}); byId('ans')?.addEventListener('input',(ev)=>{answerUiState.values.ans=ev.target.value;answerUiState.validated=false;}); byId('s').onclick = () => send('FINAL_BET_ANSWER', { bet: Number(byId('bet').value), answer: byId('ans').value }, (ok) => { if (ok) { answerUiState.values={bet:Number(byId('bet').value),ans:byId('ans').value}; answerUiState.validated=true; renderAction(); } }); }
-      else { stopArcheryAnim(); a.innerHTML = '<p>En attente de la prochaine épreuve...</p>'; }
-    }
 
-    byId('characterPrev').addEventListener('click', () => {
-      carouselIndex = normalizeIndex(carouselIndex - 1);
-      selectedCharacter = CHARACTERS[carouselIndex].file;
-      renderCharacterCarousel();
-    });
+      byId("characterPrev").addEventListener("click", () => {
+        carouselIndex = normalizeIndex(carouselIndex - 1);
+        selectedCharacter = CHARACTERS[carouselIndex].file;
+        renderCharacterCarousel();
+      });
 
-    byId('characterNext').addEventListener('click', () => {
-      carouselIndex = normalizeIndex(carouselIndex + 1);
-      selectedCharacter = CHARACTERS[carouselIndex].file;
-      renderCharacterCarousel();
-    });
+      byId("characterNext").addEventListener("click", () => {
+        carouselIndex = normalizeIndex(carouselIndex + 1);
+        selectedCharacter = CHARACTERS[carouselIndex].file;
+        renderCharacterCarousel();
+      });
 
-    byId('join').addEventListener('click', () => {
+      byId("join").addEventListener("click", () => {
+        const s = load();
+        const name = (byId("name").value || s?.name || "").trim();
+        if (!name) return alert("Le pseudo est obligatoire.");
+        socket.emit(
+          "room:join",
+          {
+            playerId: s?.playerId,
+            reconnectToken: s?.reconnectToken,
+            name,
+            animal: selectedCharacter,
+          },
+          (r) => {
+            if (!r?.ok) return alert(r?.error || "Impossible");
+            save({
+              playerId: r.player.playerId,
+              reconnectToken: r.player.reconnectToken,
+              name: r.player.name,
+              animal: selectedCharacter,
+            });
+            joined(r.player);
+            renderAction();
+          },
+        );
+      });
+
       const s = load();
-      const name = (byId('name').value || s?.name || '').trim();
-      if (!name) return alert('Le pseudo est obligatoire.');
-      socket.emit('room:join', {
-        playerId: s?.playerId,
-        reconnectToken: s?.reconnectToken,
-        name,
-        animal: selectedCharacter
-      }, (r) => {
-        if (!r?.ok) return alert(r?.error || 'Impossible');
-        save({
-          playerId: r.player.playerId,
-          reconnectToken: r.player.reconnectToken,
-          name: r.player.name,
-          animal: selectedCharacter
+      if (s?.name) byId("name").value = s.name;
+      if (s?.animal && CHARACTERS.some((c) => c.file === s.animal)) {
+        selectedCharacter = s.animal;
+        carouselIndex = CHARACTERS.findIndex((c) => c.file === s.animal);
+      }
+      renderCharacterCarousel();
+
+      if (s?.playerId && s?.reconnectToken) {
+        socket.emit("room:join", s, (r) => {
+          if (r?.ok) {
+            joined(r.player);
+          }
         });
-        joined(r.player);
+      }
+
+      socket.on("game:state", (s0) => {
+        const prevPhase = st?.phase;
+        const prevQuestion = st?.gameState?.currentIndex;
+        st = s0;
+        if (
+          prevPhase !== s0.phase ||
+          (s0.phase === "GAME_B" && prevQuestion !== s0.gameState?.currentIndex)
+        ) {
+          clearAck();
+        }
+        updateScore();
         renderAction();
       });
-    });
-
-    const s = load();
-    if (s?.name) byId('name').value = s.name;
-    if (s?.animal && CHARACTERS.some((c) => c.file === s.animal)) {
-      selectedCharacter = s.animal;
-      carouselIndex = CHARACTERS.findIndex((c) => c.file === s.animal);
-    }
-    renderCharacterCarousel();
-
-    if (s?.playerId && s?.reconnectToken) {
-      socket.emit('room:join', s, (r) => { if (r?.ok) { joined(r.player); } });
-    }
-
-    socket.on('game:state', (s0) => { const prevPhase=st?.phase; const prevQuestion=st?.gameState?.currentIndex; st = s0; if(prevPhase!==s0.phase || (s0.phase==='GAME_B' && prevQuestion!==s0.gameState?.currentIndex)){ clearAck(); } updateScore(); renderAction(); });
-    socket.on('game:reset', () => { stopArcheryAnim(); document.body.classList.remove('archery-active'); localStorage.removeItem(KEY); location.reload(); });
-  </script>
-</body>
+      socket.on("game:reset", () => {
+        stopArcheryAnim();
+        document.body.classList.remove("archery-active");
+        localStorage.removeItem(KEY);
+        location.reload();
+      });
+    </script>
+  </body>
 </html>

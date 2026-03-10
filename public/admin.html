@@ -1,164 +1,637 @@
-<!doctype html><html lang="fr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Admin</title><link rel="stylesheet" href="/style.css"/><style>.status-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;vertical-align:middle;box-shadow:0 0 0 2px rgba(255,255,255,.12)}.status-dot.connected{background:#32d16d}.status-dot.disconnected{background:#ff5a5a}</style></head><body>
-<div class="container"><h1 class="title">🛡️ Admin</h1>
-<section id="auth" class="panel"><input id="pwd" type="password" placeholder="Mot de passe Admin"/><button id="login" class="mt">Connexion</button></section>
-<section id="dash" class="panel mt" style="display:none">
-  <div id='tvAudioError' class='panel error-msg' style='display:none'></div>
-  <div class="phase-banner">ÉTAPE ACTUELLE : <span id="phase">LOBBY</span></div>
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Admin</title>
+    <link rel="stylesheet" href="/style.css" />
+    <style>
+      .status-dot {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 8px;
+        vertical-align: middle;
+        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+      }
+      .status-dot.connected {
+        background: #32d16d;
+      }
+      .status-dot.disconnected {
+        background: #ff5a5a;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1 class="title">🛡️ Admin</h1>
+      <section id="auth" class="panel">
+        <input
+          id="pwd"
+          type="password"
+          placeholder="Mot de passe Admin"
+        /><button id="login" class="mt">Connexion</button>
+      </section>
+      <section id="dash" class="panel mt" style="display: none">
+        <div
+          id="tvAudioError"
+          class="panel error-msg"
+          style="display: none"
+        ></div>
+        <div class="phase-banner">
+          ÉTAPE ACTUELLE : <span id="phase">LOBBY</span>
+        </div>
 
-  <div class="panel mt">
-    <h3>Choisir le jeu et la question</h3>
-    <select id="gamePicker"><option value="">— Sélectionner un jeu —</option></select>
-    <select id="questionPicker" class="mt" style="display:none"></select>
-    <div id="gameInfo" class="panel mt" style="display:none"></div>
+        <div class="panel mt">
+          <h3>Section 1 — Gestion globale de la partie</h3>
+          <div class="admin-actions mt">
+            <button id="newGame" class="danger">Nouvelle partie</button>
+            <button id="toggleTvMute" class="secondary">TV: Muet</button>
+            <button id="finishGame" class="secondary">Terminer le jeu</button>
+          </div>
+        </div>
 
-    <div id='gameBAdminConfig' class='mt' style='display:none'>
-      <div class='grid grid-2'>
-        <div><label>Questions</label><select id='gameBCount'><option>1</option><option>2</option><option>5</option><option>10</option><option>15</option></select></div>
-        <div><label>Secondes / question</label><select id='gameBSeconds'></select></div>
-      </div>
+        <div class="panel mt">
+          <h3>Section 2 — Gestion du jeu en cours</h3>
+          <p class="small">
+            1) Sélectionner un jeu → 2) Paramétrer → 3) Montrer les règles → 4)
+            Lancer le jeu → 5) Afficher les résultats.
+          </p>
+          <select id="gamePicker">
+            <option value="">— Sélectionner un jeu —</option>
+          </select>
+          <select id="questionPicker" class="mt" style="display: none"></select>
+          <div id="gameInfo" class="panel mt" style="display: none"></div>
+          <div id="gameBAdminConfig" class="mt" style="display: none">
+            <div class="grid grid-2">
+              <div>
+                <label>Questions</label
+                ><select id="gameBCount">
+                  <option>1</option>
+                  <option>2</option>
+                  <option>5</option>
+                  <option>10</option>
+                  <option>15</option>
+                </select>
+              </div>
+              <div>
+                <label>Secondes / question</label
+                ><select id="gameBSeconds"></select>
+              </div>
+            </div>
+          </div>
+
+          <div id="gameCAdminConfig" class="mt" style="display: none">
+            <div class="grid">
+              <input
+                id="gameCManualItem"
+                placeholder="Objet manuel (optionnel)"
+              />
+              <input
+                id="gameCManualPrice"
+                type="number"
+                min="1"
+                step="1"
+                placeholder="Prix réel en DH (optionnel)"
+              />
+            </div>
+          </div>
+
+          <div id="gameDAdminConfig" class="mt" style="display: none">
+            <div class="admin-actions">
+              <button id="gameDStartBtn" class="secondary">
+                Lancer la chanson
+              </button>
+              <button id="gameDNextSongBtn" class="secondary">
+                Chanson suivante
+              </button>
+            </div>
+            <div
+              id="gameDAnswers"
+              class="mt"
+              style="display: grid; gap: 8px"
+            ></div>
+          </div>
+
+          <div id="gameGAdminConfig" class="mt" style="display: none">
+            <div id="gameGPlayers" style="display: grid; gap: 8px"></div>
+            <button id="gameGAnnounceBtn" class="secondary mt">
+              Annoncer les résultats
+            </button>
+          </div>
+          <div id="gameFAdminConfig" class="mt" style="display: none">
+            <h4>Casser une flèche (décision orale)</h4>
+            <div id="gameFBreakList" style="display: grid; gap: 8px"></div>
+          </div>
+
+          <div class="admin-actions mt">
+            <button id="showRules" class="secondary">Montrer les règles</button>
+            <button id="launchGame">Lancer le jeu</button>
+            <button id="showResults" class="secondary">
+              Afficher les résultats
+            </button>
+            <button id="nextQuestion" class="secondary" style="display: none">
+              Question suivante
+            </button>
+          </div>
+        </div>
+
+        <div id="results" class="panel mt" style="display: none">
+          <h3>Résultats</h3>
+          <ol id="top3"></ol>
+          <ul id="impactList" class="roster"></ul>
+        </div>
+        <div class="panel mt">
+          <h3>Scores joueurs (clic pseudo = +1)</h3>
+          <ul id="roster" class="roster"></ul>
+        </div>
+      </section>
     </div>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const socket = io({ transports: ["websocket", "polling"] });
+      let state = null;
+      let selectedGame = "";
+      let selectedQuestionIndex = 0;
+      let selectedGameBSeconds = 20;
+      const byId = (id) => document.getElementById(id);
+      const GAME_B_SECONDS_OPTIONS = [10, 15, 20, 30, 45];
+      const GAME_RULES = {
+        GAME_A: {
+          title: "Jeu A — Susceptible de...",
+          rules: "Vote pour un joueur",
+          points: "+1 vote sur top, -2 plus cité",
+        },
+        GAME_B: {
+          title: "Jeu B — 1 bonne réponse par question",
+          rules: "Questions libres chronométrées",
+          points: "+1 par réponse validée admin",
+        },
+        GAME_C: {
+          title: "Jeu C — Le juste prix",
+          rules: "Estimer le prix en DH",
+          points: "+2 premier, +1 second",
+        },
+        GAME_D: {
+          title: "Jeu D — Blind test",
+          rules: "Trouver titre et artiste",
+          points: "0,5 point titre + 0,5 point artiste",
+        },
+        GAME_F: {
+          title: "Jeu F — Vise bien ou fais toi des amis",
+          rules: "Viser puis casser une flèche",
+          points: "Selon résultats",
+        },
+        GAME_G: {
+          title: "Jeu G — Imposteurs",
+          rules: "Désigner un joueur voté",
+          points: "Imposteur trouvé: neutres +1, sinon imposteurs +2",
+        },
+        GAME_H: {
+          title: "Jeu H — Totem caché",
+          rules: "Trouver le totem caché",
+          points: "Bonus selon résultat",
+        },
+        GAME_I: {
+          title: "Jeu I — Porte cachée",
+          rules: "Choisir une porte",
+          points: "Bonus/Malus selon la porte",
+        },
+      };
+      const GAME_LABELS = {
+        GAME_A: "Jeu A — Susceptible de...",
+        GAME_B: "Jeu B — 1 bonne réponse par question",
+        GAME_C: "Jeu C — Juste Prix",
+        GAME_D: "Jeu D — Blind test",
+        GAME_F: "Jeu F — Vise bien ou fais toi des amis",
+        GAME_G: "Jeu G — Imposteur",
+        GAME_H: "Jeu H — Totem Caché",
+        GAME_I: "Jeu I — Porte Cachée",
+      };
+      function cmd(command, payload, cb) {
+        socket.emit("admin:command", { command, payload }, cb);
+      }
+      function scoreControls(p) {
+        return `<div class='score-ctl'><button data-score='-1' data-p='${p.playerId}' class='secondary'>-1</button><strong>${p.score}</strong><button data-score='1' data-p='${p.playerId}'>+1</button></div>`;
+      }
+      function arrowControls(p) {
+        const arrows = Math.max(0, Math.min(2, Number(p.arrows ?? 2)));
+        return `<button class='secondary' data-restore-arrow='${p.playerId}'>🏹 ${arrows}/2 (+1)</button>`;
+      }
+      function ensureGameBSecondsOptions() {
+        const sec = byId("gameBSeconds");
+        if (!sec) return;
+        if (sec.options.length === GAME_B_SECONDS_OPTIONS.length) return;
+        sec.innerHTML = GAME_B_SECONDS_OPTIONS.map(
+          (v) => `<option value='${v}'>${v}</option>`,
+        ).join("");
+      }
+      function fillGamePicker(s) {
+        const gp = byId("gamePicker");
+        const cat = s.gameCatalog || {};
+        const games = Object.keys(cat);
+        if (!selectedGame || !games.includes(selectedGame))
+          selectedGame = games[0] || "";
+        gp.innerHTML =
+          "<option value=''>— Sélectionner un jeu —</option>" +
+          games
+            .map(
+              (g) =>
+                `<option value='${g}' ${selectedGame === g ? "selected" : ""}>${GAME_LABELS[g] || g}</option>`,
+            )
+            .join("");
+        gp.value = selectedGame;
+      }
+      function fillQuestionPicker(s) {
+        const qp = byId("questionPicker");
+        if (!selectedGame) {
+          qp.style.display = "none";
+          qp.innerHTML = "";
+          return;
+        }
+        const list = (s.gameCatalog && s.gameCatalog[selectedGame]) || [];
+        qp.style.display = selectedGame === "GAME_B" ? "none" : "";
+        if (selectedGame === "GAME_B") {
+          qp.innerHTML = "<option value='0'>Version unique</option>";
+          selectedQuestionIndex = 0;
+          return;
+        }
+        qp.innerHTML =
+          list
+            .map(
+              (q) =>
+                `<option value='${q.index}'>${q.index + 1}. ${q.label}</option>`,
+            )
+            .join("") || "<option value='0'>1</option>";
+        const fromPreview = Number(s?.previewGame?.questionIndex);
+        const candidate = Number.isFinite(fromPreview)
+          ? fromPreview
+          : Number(selectedQuestionIndex || 0);
+        const hasCandidate = list.some((q) => Number(q.index) === candidate);
+        qp.value = String(hasCandidate ? candidate : (list[0]?.index ?? 0));
+        selectedQuestionIndex = Number(qp.value || 0);
+      }
+      function renderGameInfo() {
+        const box = byId("gameInfo");
+        const g = GAME_RULES[selectedGame];
+        if (!g) {
+          box.style.display = "none";
+          box.innerHTML = "";
+          return;
+        }
+        box.style.display = "";
+        box.innerHTML = `<h4>${g.title}</h4><p><strong>Règle:</strong> ${g.rules}</p><p><strong>Points:</strong> ${g.points}</p>`;
+        byId("gameBAdminConfig").style.display =
+          selectedGame === "GAME_B" ? "" : "none";
+        byId("gameCAdminConfig").style.display =
+          selectedGame === "GAME_C" ? "" : "none";
+        byId("gameDAdminConfig").style.display =
+          selectedGame === "GAME_D" ? "" : "none";
+        cmd("GAME_PREVIEW", { game: selectedGame });
+      }
+      function renderGameDAdmin(s) {
+        const wrap = byId("gameDAnswers");
+        if (!wrap) return;
+        if (s.phase !== "GAME_D") {
+          wrap.innerHTML = "";
+          return;
+        }
+        const answers = s.gameState?.answers || {};
+        const awards = s.gameState?.awardsByPid || {};
+        const rows = (s.rankings || [])
+          .map((p) => {
+            const a = answers[p.playerId] || {};
+            const rec = awards[p.playerId] || { title: false, artist: false };
+            const pts = (rec.title ? 0.5 : 0) + (rec.artist ? 0.5 : 0);
+            return `<div style='display:grid;gap:4px;padding:8px;border:1px solid rgba(255,255,255,.15);border-radius:8px;background:${pts ? "rgba(42,178,84,.2)" : "rgba(0,0,0,.2)"}'><div><strong>${p.name}</strong> <span class='small'>(${pts} pt)</span></div><div class='small'>Titre: ${a.title || "—"} | Artiste: ${a.artist || "—"}</div><div style='display:flex;gap:8px;'><button data-dtoggle='${p.playerId}:title' class='${rec.title ? "secondary" : ""}'>Titre</button><button data-dtoggle='${p.playerId}:artist' class='${rec.artist ? "secondary" : ""}'>Artiste</button></div></div>`;
+          })
+          .join("");
+        wrap.innerHTML = rows || '<p class="small">Aucune réponse</p>';
+        wrap.querySelectorAll("[data-dtoggle]").forEach(
+          (b) =>
+            (b.onclick = () => {
+              const [pid, part] = b.dataset.dtoggle.split(":");
+              cmd("GAME_D_TOGGLE", { playerId: pid, part });
+            }),
+        );
+      }
+      function renderGameFAdmin(s) {
+        const wrap = byId("gameFBreakList");
+        if (!wrap) return;
+        if (s.phase !== "GAME_F" || s.gameState?.stage !== "BREAK_SELECT") {
+          wrap.innerHTML = "";
+          return;
+        }
+        const closest =
+          s.rankings?.find((p) => p.playerId === s.gameState?.closest)?.name ||
+          s.gameState?.closest ||
+          "Le plus proche";
+        wrap.innerHTML =
+          `<p class='small'>${closest} annonce oralement sa cible.</p>` +
+          (s.rankings || [])
+            .filter((p) => !p.eliminated && p.playerId !== s.gameState?.closest)
+            .map(
+              (p) =>
+                `<button data-fbreak='${p.playerId}'>Casser la flèche de ${p.name}</button>`,
+            )
+            .join("");
+        wrap.querySelectorAll("[data-fbreak]").forEach(
+          (b) =>
+            (b.onclick = () =>
+              cmd("GAME_F_BREAK_ARROW", {
+                targetPlayerId: b.dataset.fbreak,
+              })),
+        );
+      }
 
-    <div id='gameCAdminConfig' class='mt' style='display:none'>
-      <div class='grid'>
-        <input id='gameCManualItem' placeholder='Objet manuel (optionnel)' />
-        <input id='gameCManualPrice' type='number' min='1' step='1' placeholder='Prix réel en DH (optionnel)' />
-      </div>
-    </div>
+      function renderGameGAdmin(s) {
+        const wrap = byId("gameGPlayers");
+        if (!wrap) return;
+        if (s.phase !== "GAME_G") {
+          wrap.innerHTML = "";
+          return;
+        }
+        const roles = s.gameState?.roles || {};
+        const selected = s.gameState?.selectedPlayerId || "";
+        wrap.innerHTML = (s.rankings || [])
+          .map(
+            (p) =>
+              `<button data-gselect='${p.playerId}' style='text-align:left;color:#fff;background:${selected === p.playerId ? "rgba(255,180,60,.4)" : roles[p.playerId] === "IMPOSTOR" ? "rgba(210,60,60,.35)" : "rgba(60,170,90,.25)"}'><strong>${p.name}</strong> <span class='small'>${roles[p.playerId] === "IMPOSTOR" ? "Imposteur" : "Neutre"}</span></button>`,
+          )
+          .join("");
+        wrap
+          .querySelectorAll("[data-gselect]")
+          .forEach(
+            (b) =>
+              (b.onclick = () =>
+                cmd("GAME_G_SELECT", { playerId: b.dataset.gselect })),
+          );
+      }
 
-    <div id='gameDAdminConfig' class='mt' style='display:none'>
-      <div class='admin-actions'>
-        <button id='gameDStartBtn' class='secondary'>Lancer la chanson</button>
-        <button id='gameDNextSongBtn' class='secondary'>Chanson suivante</button>
-      </div>
-      <div id='gameDAnswers' class='mt' style='display:grid;gap:8px;'></div>
-    </div>
+      function renderResults(s) {
+        if (s.phase === "GAME_B" && s.gameState?.stage === "REVIEW") {
+          const qIdx = Number(s.gameState?.reviewIndex || 0);
+          const q = s.gameState?.questions?.[qIdx] || {};
+          const rows = (s.gameState?.reviewAnswers || [])
+            .map(
+              (it) =>
+                `<li style='display:flex;justify-content:space-between;gap:8px;align-items:center;'><div><strong>${it.name}</strong> — ${it.answer || "—"}</div><button data-bvalidate='${it.playerId}' class='${it.validated ? "secondary" : ""}' style='width:auto;padding:.35rem .55rem;'>${it.validated ? "✅ Validée" : "❌ Refusée"}</button></li>`,
+            )
+            .join("");
+          byId("results").style.display = "";
+          byId("top3").innerHTML =
+            `<li>Jeu B — Correction ${qIdx + 1}/${(s.gameState?.questions || []).length || 1}</li><li><em>${q.prompt || "Question"}</em></li><li>Bonne réponse: <strong>${q.answer || "—"}</strong></li>`;
+          byId("impactList").innerHTML = rows || "<li>Aucune réponse</li>";
+          byId("impactList")
+            .querySelectorAll("[data-bvalidate]")
+            .forEach(
+              (b) =>
+                (b.onclick = () =>
+                  cmd("GAME_B_TOGGLE_VALIDATE", {
+                    playerId: b.dataset.bvalidate,
+                  })),
+            );
+          return;
+        }
+        const r = s.gameState?.results;
+        if (!r) {
+          byId("results").style.display = "none";
+          return;
+        }
+        byId("results").style.display = "";
+        byId("top3").innerHTML = `<li>Résultats ${r.game || ""}</li>`;
+        byId("impactList").innerHTML =
+          `<li><pre>${JSON.stringify(r, null, 2)}</pre></li>`;
+      }
+      function render(s) {
+        state = s;
+        selectedGame =
+          selectedGame ||
+          s.previewGame?.game ||
+          byId("gamePicker")?.value ||
+          "";
+        byId("phase").textContent = s.phase;
+        byId("toggleTvMute").textContent = s.tvMuted
+          ? "Musique: Activer"
+          : "Musique: Désactiver";
+        byId("launchGame").textContent =
+          s.phase === "WAITING" ? "Lancer le jeu" : "Lancer le jeu";
+        ensureGameBSecondsOptions();
+        const activePickerId = document.activeElement?.id || "";
+        const isEditingPicker = [
+          "gamePicker",
+          "questionPicker",
+          "gameBCount",
+          "gameBSeconds",
+        ].includes(activePickerId);
+        if (!isEditingPicker) {
+          fillGamePicker(s);
+          fillQuestionPicker(s);
+          renderGameInfo();
+        }
+        const sec = byId("gameBSeconds");
+        if (sec && !isEditingPicker) {
+          const candidate = Number(sec.value || selectedGameBSeconds || 20);
+          selectedGameBSeconds = GAME_B_SECONDS_OPTIONS.includes(candidate)
+            ? candidate
+            : 20;
+          sec.value = String(selectedGameBSeconds);
+        }
+        const roster = byId("roster");
+        roster.innerHTML = "";
+        s.rankings.forEach((p) => {
+          const li = document.createElement("li");
+          const isConnected = p.status === "CONNECTED";
+          li.innerHTML = `<div><span class='status-dot ${isConnected ? "connected" : "disconnected"}' title='${isConnected ? "Connecté" : "Déconnecté"}'></span>#${p.rank} <strong>${p.name}</strong> <span class='small'>(${p.animal})</span> <span class='small'>${isConnected ? "Connecté" : "Déconnecté"}</span> ${p.eliminated ? "🪦" : ""}</div><div class='grid'>${arrowControls(p)}${scoreControls(p)}</div>`;
+          roster.appendChild(li);
+        });
+        const audioErr = byId("tvAudioError");
+        if (s.lastTvAudioError) {
+          audioErr.style.display = "";
+          audioErr.textContent = `⚠️ Audio TV: ${s.lastTvAudioError.reason} (${new Date(s.lastTvAudioError.at).toLocaleTimeString()})`;
+        } else {
+          audioErr.style.display = "none";
+          audioErr.textContent = "";
+        }
+        renderResults(s);
+        const nextQuestionBtn = byId("nextQuestion");
+        nextQuestionBtn.style.display =
+          s.phase === "GAME_B" && s.gameState?.stage === "REVIEW" ? "" : "none";
+        const special = byId("specialControls");
+        if (special) {
+          if (s.phase === "GAME_D") {
+            const awards = s.gameState?.awards || {};
+            const winners = s.gameState?.winners || [];
+            special.innerHTML = `<div class='panel'><h4 style='margin:.2rem 0 .6rem;'>Blind test — attribution des points</h4>${(
+              s.rankings || []
+            )
+              .filter((p) => !p.eliminated)
+              .map((p) => {
+                const a = awards[p.playerId] || {};
+                return `<div class='roster' style='margin-bottom:8px;'><li style='background:${a.title || a.artist ? "rgba(42,178,84,.25)" : "rgba(0,0,0,.3)"}'><div><button class='secondary' data-dfull='${p.playerId}' style='width:auto;padding:.45rem .7rem;'>${p.name} (+1)</button></div><div style='display:flex;gap:8px;'><button data-dtitle='${p.playerId}' class='secondary' style='width:auto;${a.title ? "background:linear-gradient(180deg,#44b563,#2f8146);" : ""}'>🎵 Titre</button><button data-dartist='${p.playerId}' class='secondary' style='width:auto;${a.artist ? "background:linear-gradient(180deg,#44b563,#2f8146);" : ""}'>🎤 Artiste</button></div></li></div>`;
+              })
+              .join(
+                "",
+              )}<div class='admin-actions mt'><button id='dNextSong'>Chanson suivante</button></div><p class='small'>${winners.length ? `Attribution: ${winners.map((w) => `${(s.rankings || []).find((p) => p.playerId === w.pid)?.name || w.pid} (${w.gained}pt)`).join(", ")}` : "Aucun point attribué pour le moment."}</p></div>`;
+            special.querySelectorAll("[data-dfull]").forEach((b) =>
+              b.addEventListener("click", () =>
+                cmd("GAME_D_AWARD", {
+                  playerId: b.dataset.dfull,
+                  type: "FULL",
+                }),
+              ),
+            );
+            special.querySelectorAll("[data-dtitle]").forEach((b) =>
+              b.addEventListener("click", () =>
+                cmd("GAME_D_AWARD", {
+                  playerId: b.dataset.dtitle,
+                  type: "TITLE",
+                }),
+              ),
+            );
+            special.querySelectorAll("[data-dartist]").forEach((b) =>
+              b.addEventListener("click", () =>
+                cmd("GAME_D_AWARD", {
+                  playerId: b.dataset.dartist,
+                  type: "ARTIST",
+                }),
+              ),
+            );
+            byId("dNextSong")?.addEventListener("click", () =>
+              cmd("GAME_D_NEXT_SONG"),
+            );
+          } else if (s.phase === "GAME_G") {
+            special.innerHTML = `<button id='gNext'>Phase suivante imposteur</button><button id='gDraw' class='secondary'>Joueur suivant</button><select id='gReveal'>${(
+              s.rankings || []
+            )
+              .filter((p) => !p.eliminated)
+              .map((p) => `<option value='${p.playerId}'>${p.name}</option>`)
+              .join(
+                "",
+              )}</select><button id='gResult' class='danger'>Révéler résultat</button>`;
+            byId("gNext")?.addEventListener("click", () =>
+              cmd("GAME_G_NEXT_STAGE"),
+            );
+            byId("gDraw")?.addEventListener("click", () =>
+              cmd("GAME_G_DRAW_PLAYER"),
+            );
+            byId("gResult")?.addEventListener("click", () =>
+              cmd("GAME_G_REVEAL_RESULT", {
+                revealedPlayerId: byId("gReveal").value,
+              }),
+            );
+          } else if (s.phase === "GAME_H") {
+            special.innerHTML = `<button id='hReveal'>Révéler le totem maintenant</button>`;
+            byId("hReveal")?.addEventListener("click", () =>
+              cmd("GAME_H_REVEAL"),
+            );
+          } else if (s.phase === "GAME_I") {
+            special.innerHTML = `<button id='iReveal' class='danger'>Révéler la porte</button>`;
+            byId("iReveal")?.addEventListener("click", () =>
+              cmd("GAME_I_REVEAL"),
+            );
+          } else special.innerHTML = "";
+        }
+        roster.querySelectorAll("[data-score]").forEach(
+          (b) =>
+            (b.onclick = () =>
+              cmd("UPDATE_SCORE", {
+                playerId: b.dataset.p,
+                delta: Number(b.dataset.score),
+              })),
+        );
+        roster.querySelectorAll("[data-click-point]").forEach(
+          (b) =>
+            (b.onclick = () =>
+              cmd("UPDATE_SCORE", {
+                playerId: b.dataset.clickPoint,
+                delta: 1,
+              })),
+        );
+        roster
+          .querySelectorAll("[data-restore-arrow]")
+          .forEach(
+            (b) =>
+              (b.onclick = () =>
+                cmd("RESTORE_ARROW", { playerId: b.dataset.restoreArrow })),
+          );
+        renderGameDAdmin(s);
+        renderGameGAdmin(s);
+        renderGameFAdmin(s);
+        renderResults(s);
+      }
 
-    <div id='gameGAdminConfig' class='mt' style='display:none'><div id='gameGPlayers' style='display:grid;gap:8px;'></div><button id='gameGAnnounceBtn' class='secondary mt'>Annoncer les résultats</button></div>
-    <div id='gameFAdminConfig' class='mt' style='display:none'><h4>Casser une flèche (décision orale)</h4><div id='gameFBreakList' style='display:grid;gap:8px;'></div></div>
-
-    <div class="admin-actions mt">
-      <button id="launchGame">Lancer le jeu sélectionné</button>
-      <button id="showResults" class="secondary">Montrer les résultats</button>
-      <button id="toggleTvMute" class="secondary">TV: Muet</button>
-      <button id="finishGame" class="secondary">Terminer le jeu</button><button id="resetGame" class="danger">Réinitialiser le jeu</button>
-    </div>
-  </div>
-
-  <div id="results" class="panel mt" style="display:none"><h3>Résultats</h3><ol id="top3"></ol><ul id="impactList" class="roster"></ul></div>
-  <div class="panel mt"><h3>Scores joueurs (clic pseudo = +1)</h3><ul id="roster" class="roster"></ul></div>
-</section></div>
-<script src="/socket.io/socket.io.js"></script><script>
-const socket=io({transports:['websocket','polling']});let state=null;let selectedGame='';let selectedQuestionIndex=0;let selectedGameBSeconds=20;const byId=id=>document.getElementById(id);
-const GAME_B_SECONDS_OPTIONS=[10,15,20,30,45];
-const GAME_RULES={GAME_A:{title:'Jeu A — Susceptible de...',rules:'Vote pour un joueur',points:'+1 vote sur top, -2 plus cité'},GAME_B:{title:'Jeu B — 1 bonne réponse par question',rules:'Questions libres chronométrées',points:'+1 par réponse validée admin'},GAME_C:{title:'Jeu C — Le juste prix',rules:'Estimer le prix en DH',points:'+2 premier, +1 second'},GAME_D:{title:'Jeu D — Blind test',rules:'Trouver titre et artiste',points:'0,5 point titre + 0,5 point artiste'},GAME_F:{title:'Jeu F — Vise bien ou fais toi des amis',rules:'Viser puis casser une flèche',points:'Selon résultats'},GAME_G:{title:'Jeu G — Imposteurs',rules:'Désigner un joueur voté',points:'Imposteur trouvé: neutres +1, sinon imposteurs +2'},GAME_H:{title:'Jeu H — Totem caché',rules:'Trouver le totem caché',points:'Bonus selon résultat'},GAME_I:{title:'Jeu I — Porte cachée',rules:'Choisir une porte',points:'Bonus/Malus selon la porte'}};
-const GAME_LABELS={GAME_A:'Jeu A — Susceptible de...',GAME_B:'Jeu B — 1 bonne réponse par question',GAME_C:'Jeu C — Juste Prix',GAME_D:'Jeu D — Blind test',GAME_F:'Jeu F — Vise bien ou fais toi des amis',GAME_G:'Jeu G — Imposteur',GAME_H:'Jeu H — Totem Caché',GAME_I:'Jeu I — Porte Cachée'};
-function cmd(command,payload,cb){socket.emit('admin:command',{command,payload},cb);}
-function scoreControls(p){ return `<div class='score-ctl'><button data-score='-1' data-p='${p.playerId}' class='secondary'>-1</button><strong>${p.score}</strong><button data-score='1' data-p='${p.playerId}'>+1</button></div>`; }
-function arrowControls(p){ const arrows=Math.max(0,Math.min(2,Number(p.arrows??2))); return `<button class='secondary' data-restore-arrow='${p.playerId}'>🏹 ${arrows}/2 (+1)</button>`; }
-function ensureGameBSecondsOptions(){ const sec=byId('gameBSeconds'); if(!sec) return; if(sec.options.length===GAME_B_SECONDS_OPTIONS.length) return; sec.innerHTML=GAME_B_SECONDS_OPTIONS.map((v)=>`<option value='${v}'>${v}</option>`).join(''); }
-function fillGamePicker(s){ const gp=byId('gamePicker'); const cat=s.gameCatalog||{}; const games=Object.keys(cat); if(!selectedGame||!games.includes(selectedGame)) selectedGame=games[0]||''; gp.innerHTML="<option value=''>— Sélectionner un jeu —</option>"+games.map(g=>`<option value='${g}' ${selectedGame===g?'selected':''}>${GAME_LABELS[g]||g}</option>`).join(''); gp.value=selectedGame; }
-function fillQuestionPicker(s){ const qp=byId('questionPicker'); if(!selectedGame){qp.style.display='none';qp.innerHTML='';return;} const list=(s.gameCatalog&&s.gameCatalog[selectedGame])||[]; qp.style.display=''; qp.innerHTML=list.map(q=>`<option value='${q.index}'>${q.index+1}. ${q.label}</option>`).join('')||"<option value='0'>1</option>"; const fromPreview=Number(s?.previewGame?.questionIndex); const candidate=Number.isFinite(fromPreview)?fromPreview:Number(selectedQuestionIndex||0); const hasCandidate=list.some((q)=>Number(q.index)===candidate); qp.value=String(hasCandidate?candidate:(list[0]?.index??0)); selectedQuestionIndex=Number(qp.value||0); }
-function renderGameInfo(){ const box=byId('gameInfo'); const g=GAME_RULES[selectedGame]; if(!g){box.style.display='none';box.innerHTML=''; return;} box.style.display=''; box.innerHTML=`<h4>${g.title}</h4><p><strong>Règle:</strong> ${g.rules}</p><p><strong>Points:</strong> ${g.points}</p>`; byId('gameBAdminConfig').style.display=selectedGame==='GAME_B'?'':'none'; byId('gameCAdminConfig').style.display=selectedGame==='GAME_C'?'':'none'; byId('gameDAdminConfig').style.display=selectedGame==='GAME_D'?'':'none'; cmd('GAME_PREVIEW',{game:selectedGame}); }
-function renderGameDAdmin(s){
-  const wrap=byId('gameDAnswers'); if(!wrap) return;
-  if(s.phase!=='GAME_D'){ wrap.innerHTML=''; return; }
-  const answers=s.gameState?.answers||{}; const awards=s.gameState?.awardsByPid||{};
-  const rows=(s.rankings||[]).map((p)=>{ const a=answers[p.playerId]||{}; const rec=awards[p.playerId]||{title:false,artist:false}; const pts=(rec.title?0.5:0)+(rec.artist?0.5:0); return `<div style='display:grid;gap:4px;padding:8px;border:1px solid rgba(255,255,255,.15);border-radius:8px;background:${pts?'rgba(42,178,84,.2)':'rgba(0,0,0,.2)'}'><div><strong>${p.name}</strong> <span class='small'>(${pts} pt)</span></div><div class='small'>Titre: ${a.title||'—'} | Artiste: ${a.artist||'—'}</div><div style='display:flex;gap:8px;'><button data-dtoggle='${p.playerId}:title' class='${rec.title?'secondary':''}'>Titre</button><button data-dtoggle='${p.playerId}:artist' class='${rec.artist?'secondary':''}'>Artiste</button></div></div>`; }).join('');
-  wrap.innerHTML=rows || '<p class="small">Aucune réponse</p>';
-  wrap.querySelectorAll('[data-dtoggle]').forEach((b)=>b.onclick=()=>{ const [pid,part]=b.dataset.dtoggle.split(':'); cmd('GAME_D_TOGGLE',{playerId:pid,part}); });
-}
-function renderGameFAdmin(s){
-  const wrap=byId('gameFBreakList'); if(!wrap) return;
-  if(s.phase!=='GAME_F' || s.gameState?.stage!=='BREAK_SELECT'){ wrap.innerHTML=''; return; }
-  const closest=s.rankings?.find((p)=>p.playerId===s.gameState?.closest)?.name||s.gameState?.closest||'Le plus proche';
-  wrap.innerHTML=`<p class='small'>${closest} annonce oralement sa cible.</p>` + (s.rankings||[]).filter((p)=>!p.eliminated&&p.playerId!==s.gameState?.closest).map((p)=>`<button data-fbreak='${p.playerId}'>Casser la flèche de ${p.name}</button>`).join('');
-  wrap.querySelectorAll('[data-fbreak]').forEach((b)=>b.onclick=()=>cmd('GAME_F_BREAK_ARROW',{targetPlayerId:b.dataset.fbreak}));
-}
-
-function renderGameGAdmin(s){
-  const wrap=byId('gameGPlayers'); if(!wrap) return;
-  if(s.phase!=='GAME_G'){ wrap.innerHTML=''; return; }
-  const roles=s.gameState?.roles||{}; const selected=s.gameState?.selectedPlayerId||'';
-  wrap.innerHTML=(s.rankings||[]).map((p)=>`<button data-gselect='${p.playerId}' style='text-align:left;color:#fff;background:${selected===p.playerId?'rgba(255,180,60,.4)':(roles[p.playerId]==='IMPOSTOR'?'rgba(210,60,60,.35)':'rgba(60,170,90,.25)')}'><strong>${p.name}</strong> <span class='small'>${roles[p.playerId]==='IMPOSTOR'?'Imposteur':'Neutre'}</span></button>`).join('');
-  wrap.querySelectorAll('[data-gselect]').forEach((b)=>b.onclick=()=>cmd('GAME_G_SELECT',{playerId:b.dataset.gselect}));
-}
-
-function renderResults(s){
-  if(s.phase==='GAME_B'&&s.gameState?.stage==='REVIEW'){
-    const qIdx=Number(s.gameState?.reviewIndex||0);
-    const q=s.gameState?.questions?.[qIdx]||{};
-    const rows=(s.gameState?.reviewAnswers||[]).map((it)=>`<li style='display:flex;justify-content:space-between;gap:8px;align-items:center;'><div><strong>${it.name}</strong> — ${it.answer||'—'}</div><button data-bvalidate='${it.playerId}' class='${it.validated?'secondary':''}' style='width:auto;padding:.35rem .55rem;'>${it.validated?'✅ Validée':'❌ Refusée'}</button></li>`).join('');
-    byId('results').style.display='';
-    byId('top3').innerHTML=`<li>Jeu B — Correction ${qIdx+1}/${(s.gameState?.questions||[]).length||1}</li><li><em>${q.prompt||'Question'}</em></li><li>Bonne réponse: <strong>${q.answer||'—'}</strong></li>`;
-    byId('impactList').innerHTML=rows||'<li>Aucune réponse</li>';
-    byId('impactList').querySelectorAll('[data-bvalidate]').forEach((b)=>b.onclick=()=>cmd('GAME_B_TOGGLE_VALIDATE',{playerId:b.dataset.bvalidate}));
-    return;
-  }
-  const r=s.gameState?.results; if(!r){ byId('results').style.display='none'; return; }
-  byId('results').style.display=''; byId('top3').innerHTML=`<li>Résultats ${r.game||''}</li>`; byId('impactList').innerHTML=`<li><pre>${JSON.stringify(r,null,2)}</pre></li>`;
-}
-function render(s){
-  state=s; selectedGame=selectedGame||s.previewGame?.game||byId('gamePicker')?.value||''; byId('phase').textContent=s.phase; byId('toggleTvMute').textContent=s.tvMuted?'TV: Démuter':'TV: Muter';
-  ensureGameBSecondsOptions();
-  const activePickerId=document.activeElement?.id||'';
-  const isEditingPicker=['gamePicker','questionPicker','gameBCount','gameBSeconds'].includes(activePickerId);
-  if(!isEditingPicker){
-    fillGamePicker(s); fillQuestionPicker(s); renderGameInfo();
-  }
-  const sec=byId('gameBSeconds');
-  if(sec && !isEditingPicker){
-    const candidate=Number(sec.value||selectedGameBSeconds||20);
-    selectedGameBSeconds=GAME_B_SECONDS_OPTIONS.includes(candidate)?candidate:20;
-    sec.value=String(selectedGameBSeconds);
-  }
-  const roster=byId('roster'); roster.innerHTML='';
-  s.rankings.forEach((p)=>{ const li=document.createElement('li'); const isConnected=p.status==='CONNECTED'; li.innerHTML=`<div><span class='status-dot ${isConnected?'connected':'disconnected'}' title='${isConnected?'Connecté':'Déconnecté'}'></span>#${p.rank} <strong>${p.name}</strong> <span class='small'>(${p.animal})</span> <span class='small'>${isConnected?'Connecté':'Déconnecté'}</span> ${p.eliminated?'🪦':''}</div><div class='grid'>${arrowControls(p)}${scoreControls(p)}</div>`; roster.appendChild(li); });
-  const audioErr=byId('tvAudioError');
-  if(s.lastTvAudioError){ audioErr.style.display=''; audioErr.textContent=`⚠️ Audio TV: ${s.lastTvAudioError.reason} (${new Date(s.lastTvAudioError.at).toLocaleTimeString()})`; }
-  else { audioErr.style.display='none'; audioErr.textContent=''; }
-  renderResults(s);
-  const special=byId('specialControls');
-  if(special){
-    if(s.phase==='GAME_D'){
-      const awards=s.gameState?.awards||{};
-      const winners=s.gameState?.winners||[];
-      special.innerHTML=`<div class='panel'><h4 style='margin:.2rem 0 .6rem;'>Blind test — attribution des points</h4>${(s.rankings||[]).filter((p)=>!p.eliminated).map((p)=>{const a=awards[p.playerId]||{}; return `<div class='roster' style='margin-bottom:8px;'><li style='background:${(a.title||a.artist)?'rgba(42,178,84,.25)':'rgba(0,0,0,.3)'}'><div><button class='secondary' data-dfull='${p.playerId}' style='width:auto;padding:.45rem .7rem;'>${p.name} (+1)</button></div><div style='display:flex;gap:8px;'><button data-dtitle='${p.playerId}' class='secondary' style='width:auto;${a.title?'background:linear-gradient(180deg,#44b563,#2f8146);':''}'>🎵 Titre</button><button data-dartist='${p.playerId}' class='secondary' style='width:auto;${a.artist?'background:linear-gradient(180deg,#44b563,#2f8146);':''}'>🎤 Artiste</button></div></li></div>`;}).join('')}<div class='admin-actions mt'><button id='dNextSong'>Chanson suivante</button></div><p class='small'>${winners.length?`Attribution: ${winners.map((w)=>`${(s.rankings||[]).find((p)=>p.playerId===w.pid)?.name||w.pid} (${w.gained}pt)`).join(', ')}`:'Aucun point attribué pour le moment.'}</p></div>`;
-      special.querySelectorAll('[data-dfull]').forEach((b)=>b.addEventListener('click',()=>cmd('GAME_D_AWARD',{playerId:b.dataset.dfull,type:'FULL'})));
-      special.querySelectorAll('[data-dtitle]').forEach((b)=>b.addEventListener('click',()=>cmd('GAME_D_AWARD',{playerId:b.dataset.dtitle,type:'TITLE'})));
-      special.querySelectorAll('[data-dartist]').forEach((b)=>b.addEventListener('click',()=>cmd('GAME_D_AWARD',{playerId:b.dataset.dartist,type:'ARTIST'})));
-      byId('dNextSong')?.addEventListener('click',()=>cmd('GAME_D_NEXT_SONG'));
-    } else if(s.phase==='GAME_G'){
-
-      special.innerHTML=`<button id='gNext'>Phase suivante imposteur</button><button id='gDraw' class='secondary'>Joueur suivant</button><select id='gReveal'>${(s.rankings||[]).filter((p)=>!p.eliminated).map((p)=>`<option value='${p.playerId}'>${p.name}</option>`).join('')}</select><button id='gResult' class='danger'>Révéler résultat</button>`;
-      byId('gNext')?.addEventListener('click',()=>cmd('GAME_G_NEXT_STAGE'));
-      byId('gDraw')?.addEventListener('click',()=>cmd('GAME_G_DRAW_PLAYER'));
-      byId('gResult')?.addEventListener('click',()=>cmd('GAME_G_REVEAL_RESULT',{revealedPlayerId:byId('gReveal').value}));
-    } else if(s.phase==='GAME_H'){
-      special.innerHTML=`<button id='hReveal'>Révéler le totem maintenant</button>`;
-      byId('hReveal')?.addEventListener('click',()=>cmd('GAME_H_REVEAL'));
-    } else if(s.phase==='GAME_I'){
-      special.innerHTML=`<button id='iReveal' class='danger'>Révéler la porte</button>`;
-      byId('iReveal')?.addEventListener('click',()=>cmd('GAME_I_REVEAL'));
-    } else special.innerHTML='';
-  }
-  roster.querySelectorAll('[data-score]').forEach((b)=>b.onclick=()=>cmd('UPDATE_SCORE',{playerId:b.dataset.p,delta:Number(b.dataset.score)}));
-  roster.querySelectorAll('[data-click-point]').forEach((b)=>b.onclick=()=>cmd('UPDATE_SCORE',{playerId:b.dataset.clickPoint,delta:1}));
-  roster.querySelectorAll('[data-restore-arrow]').forEach((b)=>b.onclick=()=>cmd('RESTORE_ARROW',{playerId:b.dataset.restoreArrow}));
-  renderGameDAdmin(s); renderGameGAdmin(s); renderGameFAdmin(s); renderResults(s);
-}
-
-byId('gamePicker').onchange=()=>{selectedGame=byId('gamePicker').value||''; fillQuestionPicker(state||{}); selectedQuestionIndex=Number(byId('questionPicker').value||0); renderGameInfo(); if(byId('gameBAdminConfig')) byId('gameBAdminConfig').style.display=selectedGame==='GAME_B'?'':'none'; cmd('PREVIEW_GAME',{game:selectedGame,questionIndex:selectedQuestionIndex});};
-byId('questionPicker').onchange=()=>{ selectedQuestionIndex=Number(byId('questionPicker').value||0); cmd('PREVIEW_GAME',{game:byId('gamePicker').value,questionIndex:selectedQuestionIndex}); };
-byId('gameBSeconds').onchange=()=>{ selectedGameBSeconds=Number(byId('gameBSeconds').value||20); };
-byId('login').onclick=()=>socket.emit('admin:auth',{password:byId('pwd').value},(r)=>{if(!r?.ok)return alert('Mot de passe incorrect');byId('auth').style.display='none';byId('dash').style.display='';render(r.state); cmd('PREVIEW_GAME',{game:byId('gamePicker').value,questionIndex:Number(byId('questionPicker').value||0)});});
-byId('launchGame').onclick=()=>cmd('LAUNCH_GAME',{game:byId('gamePicker').value,questionIndex:Number(byId('questionPicker').value||0),count:Number(byId('gameBCount')?.value||1),seconds:Number(byId('gameBSeconds')?.value||selectedGameBSeconds||20)},(r)=>{if(!r?.ok) alert(r.error||'Launch impossible');});
-byId('showResults').onclick=()=>cmd('SHOW_RESULTS',{},(r)=>{if(!r?.ok) alert(r.error||'Action impossible');});
-byId('toggleTvMute').onclick=()=>cmd('SET_TV_MUTED',{muted:!state?.tvMuted});
-byId('finishGame').onclick=()=>cmd('FINISH_GAME');
-byId('resetGame').onclick=()=>{ if(confirm('Réinitialiser toute la partie ?')) cmd('RESET_GAME'); };
-byId('gameDStartBtn').onclick=()=>cmd('GAME_D_START');
-byId('gameDNextSongBtn').onclick=()=>cmd('GAME_D_NEXT_SONG');
-byId('gameGAnnounceBtn').onclick=()=>cmd('GAME_G_ANNOUNCE');
-socket.on('game:state',render);
-socket.on('admin:revoked',()=>alert('Session admin reprise ailleurs'));
-</script></body></html>
+      byId("gamePicker").onchange = () => {
+        selectedGame = byId("gamePicker").value || "";
+        fillQuestionPicker(state || {});
+        selectedQuestionIndex = Number(byId("questionPicker").value || 0);
+        renderGameInfo();
+        if (byId("gameBAdminConfig"))
+          byId("gameBAdminConfig").style.display =
+            selectedGame === "GAME_B" ? "" : "none";
+        cmd("PREVIEW_GAME", {
+          game: selectedGame,
+          questionIndex: selectedQuestionIndex,
+        });
+      };
+      byId("questionPicker").onchange = () => {
+        selectedQuestionIndex = Number(byId("questionPicker").value || 0);
+        cmd("PREVIEW_GAME", {
+          game: byId("gamePicker").value,
+          questionIndex: selectedQuestionIndex,
+        });
+      };
+      byId("gameBSeconds").onchange = () => {
+        selectedGameBSeconds = Number(byId("gameBSeconds").value || 20);
+      };
+      byId("login").onclick = () =>
+        socket.emit("admin:auth", { password: byId("pwd").value }, (r) => {
+          if (!r?.ok) return alert("Mot de passe incorrect");
+          byId("auth").style.display = "none";
+          byId("dash").style.display = "";
+          render(r.state);
+          cmd("PREVIEW_GAME", {
+            game: byId("gamePicker").value,
+            questionIndex: Number(byId("questionPicker").value || 0),
+          });
+        });
+      byId("showRules").onclick = () =>
+        cmd("PREVIEW_GAME", {
+          game: byId("gamePicker").value,
+          questionIndex: Number(byId("questionPicker").value || 0),
+        });
+      byId("launchGame").onclick = () =>
+        cmd(
+          "LAUNCH_GAME",
+          {
+            game: byId("gamePicker").value,
+            questionIndex: Number(byId("questionPicker").value || 0),
+            count: Number(byId("gameBCount")?.value || 1),
+            seconds: Number(
+              byId("gameBSeconds")?.value || selectedGameBSeconds || 20,
+            ),
+          },
+          (r) => {
+            if (!r?.ok) alert(r.error || "Launch impossible");
+          },
+        );
+      byId("nextQuestion").onclick = () => cmd("GAME_B_REVIEW_NEXT");
+      byId("showResults").onclick = () =>
+        cmd("SHOW_RESULTS", {}, (r) => {
+          if (!r?.ok) alert(r.error || "Action impossible");
+        });
+      byId("toggleTvMute").onclick = () =>
+        cmd("SET_TV_MUTED", { muted: !state?.tvMuted });
+      byId("finishGame").onclick = () => cmd("FINISH_GAME");
+      byId("newGame").onclick = () => {
+        if (confirm("Démarrer une nouvelle partie ?")) cmd("RESET_GAME");
+      };
+      byId("gameDStartBtn").onclick = () => cmd("GAME_D_START");
+      byId("gameDNextSongBtn").onclick = () => cmd("GAME_D_NEXT_SONG");
+      byId("gameGAnnounceBtn").onclick = () => cmd("GAME_G_ANNOUNCE");
+      socket.on("game:state", render);
+      socket.on("admin:revoked", () => alert("Session admin reprise ailleurs"));
+    </script>
+  </body>
+</html>
