@@ -1,609 +1,1229 @@
-// Serveur HTTP + fichiers statiques + Socket.IO (sans Express)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { Server } = require('socket.io');
-const QRCode = require('qrcode');
 
-// Jeux (modules)
-const buzzerGame = require('./server/games/buzzer');
-const quizGame = require('./server/games/quiz');
-const guessGame = require('./server/games/guess');
-const freeGame = require('./server/games/free');
-const mostGame = require('./server/games/most');
+const PORT = Number(process.env.PORT || 3000);
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+const ADMIN_PASSWORD = 'Admin';
+const COUNCIL_MODE = process.env.COUNCIL_MODE || 'ELIMINATION';
+const COUNCIL_PENALTY = Number(process.env.COUNCIL_PENALTY || 5);
+const FINALE_TOP = Number(process.env.FINALE_TOP || 3);
 
-const games = {
-  buzzer: buzzerGame,
-  quiz: quizGame,
-  guess: guessGame,
-  free: freeGame,
-  most: mostGame
+function readConfig(name, fallback) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, 'config', name), 'utf8'));
+  } catch {
+    return fallback;
+  }
+}
+
+const CONFIG = {
+  susceptibleQuestions: readConfig('susceptible_questions.json', []),
+  blindtest: readConfig('blindtest_bank.json', []),
+  freeQuestions: readConfig(path.join('..', 'public', 'free-questions.json'), []),
+  price: readConfig('priceisright_items.json', []),
+  top3: readConfig('top3_themes.json', [])
 };
 
-const PORT = process.env.PORT || 3000;
+function buildGameCatalog() {
+  return {
+    GAME_A: CONFIG.susceptibleQuestions.map((q, idx) => ({ index: idx, label: String(q || `Question ${idx + 1}`) })),
+    GAME_B: [{ index: 0, label: '1 bonne réponse par question' }],
+    GAME_C: CONFIG.price.map((q, idx) => ({ index: idx, label: String(q?.item || `Objet ${idx + 1}`) })),
+    GAME_D: CONFIG.blindtest.map((q, idx) => ({ index: idx, label: String(q?.prompt || `Chanson ${idx + 1}`) })),
+    GAME_F: [{ index: 0, label: 'Vise bien ou fais toi des amis' }],
+    GAME_G: [{ index: 0, label: 'Imposteurs' }]
+  };
+}
+
+const FLOW = ['LOBBY', 'INTRO', 'GAME_A', 'RESULTS_A', 'GAME_B', 'RESULTS_B', 'GAME_C', 'RESULTS_C', 'GAME_D', 'RESULTS_D', 'GAME_E', 'RESULTS_E', 'GAME_G', 'GAME_H', 'GAME_I', 'COUNCIL', 'COUNCIL_RESULT', 'FINAL', 'FINAL_RESULT', 'END'];
+const TV_SCREENS = ['LOBBY', 'WAITING', 'PLACEHOLDER'];
+
+const SESSION = {
+  id: 'GLOBAL',
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+  players: new Map(),
+  socketsByPlayerId: new Map(),
+  adminSocketId: null,
+  phase: 'LOBBY',
+  phaseIndex: 0,
+  phaseStartedAt: null,
+  phaseTimer: { running: false, endsAt: null, remainingMs: 0 },
+  answerLocked: false,
+  gameState: {},
+  history: [],
+  councilMode: COUNCIL_MODE,
+  councilPenalty: COUNCIL_PENALTY,
+  immunityPlayerId: null,
+  finaleTop: FINALE_TOP,
+  started: false,
+  paused: false,
+  resultsShown: false,
+  tvMuted: false,
+  lastTvAudioError: null,
+  previewGame: { game: 'GAME_A', questionIndex: 0 },
+  lastScoreDeltas: {}
+};
+
+let gameBTimer = null;
+let totemRevealTimer = null;
+
+function gameBrief(game){
+  const map={
+    GAME_A:{title:'Jeu A — Susceptible de...',rules:'Vote pour un joueur',points:'+1 vote sur top, -2 plus cité'},
+    GAME_B:{title:'Jeu B — 1 bonne réponse par question',rules:'Questions libres chronométrées',points:'+1 par réponse validée admin'},
+    GAME_C:{title:'Jeu C — Le juste prix',rules:'Estimer le prix en DH',points:'+3 premier, +1 second'},
+    GAME_D:{title:'Jeu D — Blind test',rules:'Trouver titre et artiste',points:'0,5 point titre + 0,5 point artiste'},
+    GAME_F:{title:'Jeu F — Tir à l\'arc',rules:'Viser puis casser une flèche',points:'Selon résultats'},
+    GAME_G:{title:'Jeu G — Imposteurs',rules:'Désigner un joueur voté',points:'Imposteur trouvé: neutres +1, sinon imposteurs +2'}
+  };
+  return map[game]||{title:game,rules:'',points:''};
+}
+
+function now() { return Date.now(); }
+function nowIso() { return new Date().toISOString(); }
+function norm(s) { return String(s || '').trim().toLowerCase(); }
+function safeName(v) { return String(v || '').trim().slice(0, 24) || 'Aventurier'; }
+function safeAnimal(v) { return String(v || '').trim().slice(0, 160) || 'Tigre'; }
+function touch() { SESSION.updatedAt = nowIso(); }
+function phaseAllowsActions() { return SESSION.started && !SESSION.paused && !SESSION.answerLocked; }
+function activePlayers() { return [...SESSION.players.values()].filter((p) => !p.eliminated); }
+function connectedActivePlayers() { return activePlayers().filter((p) => p.status === 'CONNECTED'); }
+function isActivePlayerId(playerId) {
+  const p = SESSION.players.get(String(playerId || ''));
+  return !!p && !p.eliminated;
+}
+
+function gameProgress() {
+  if (!SESSION.phase?.startsWith('GAME_') && SESSION.phase !== 'COUNCIL' && SESSION.phase !== 'FINAL') return { answeredPlayerIds: [], pendingPlayerIds: [] };
+  if (!SESSION.gameState) return { answeredPlayerIds: [], pendingPlayerIds: [] };
+  const alive = activePlayers().map((p) => p.playerId);
+  const answeredSet = new Set();
+
+  if (SESSION.gameState.answers) Object.keys(SESSION.gameState.answers).forEach((pid) => answeredSet.add(pid));
+  if (SESSION.phase === 'GAME_B' && SESSION.gameState?.answersByQuestion && typeof SESSION.gameState?.currentIndex === 'number') {
+    const bucket = SESSION.gameState.answersByQuestion[SESSION.gameState.currentIndex] || {};
+    Object.keys(bucket).forEach((pid) => answeredSet.add(pid));
+  }
+  if (SESSION.gameState.choices) Object.keys(SESSION.gameState.choices).forEach((pid) => answeredSet.add(pid));
+  if (SESSION.gameState.votes) Object.keys(SESSION.gameState.votes).forEach((pid) => answeredSet.add(pid));
+  if (SESSION.phase === 'GAME_F' && SESSION.gameState.shots) {
+    Object.entries(SESSION.gameState.shots).forEach(([pid, shot]) => {
+      if (typeof shot?.vertical === 'number' && typeof shot?.horizontal === 'number') answeredSet.add(pid);
+    });
+  }
+
+  let trackable = SESSION.phase === 'FINAL' && Array.isArray(SESSION.gameState.finalists)
+    ? alive.filter((pid) => SESSION.gameState.finalists.includes(pid))
+    : alive;
+  if (SESSION.phase === 'GAME_F' && Array.isArray(SESSION.gameState.contenders)) {
+    trackable = alive.filter((pid) => SESSION.gameState.contenders.includes(pid));
+    if (SESSION.gameState.stage === 'BREAK_SELECT' && SESSION.gameState.closest) {
+      trackable = [SESSION.gameState.closest];
+      if (SESSION.gameState.breakChoice?.target) answeredSet.add(SESSION.gameState.closest);
+    }
+  } else if (SESSION.phase === 'GAME_A' && Array.isArray(SESSION.gameState.eligibleVoters)) {
+    trackable = alive.filter((pid) => SESSION.gameState.eligibleVoters.includes(pid));
+  }
+
+  const answered = trackable.filter((pid) => answeredSet.has(pid));
+  const pending = trackable.filter((pid) => !answeredSet.has(pid));
+  return { answeredPlayerIds: answered, pendingPlayerIds: pending };
+}
+
+function ensurePlayerScore(p) { if (typeof p.score !== 'number') p.score = 0; }
+function ensurePlayerArrows(p) { if (typeof p.arrows !== 'number') p.arrows = 2; }
+function addScore(pid, delta){
+  const p=SESSION.players.get(pid); if(!p) return;
+  ensurePlayerScore(p);
+  p.score += Number(delta)||0;
+  SESSION.lastScoreDeltas[pid] = (SESSION.lastScoreDeltas[pid] || 0) + (Number(delta)||0);
+}
+
+function rankPlayers() {
+  return [...SESSION.players.values()]
+    .sort((a, b) => (b.score - a.score) || ((a.joinSeq ?? 0) - (b.joinSeq ?? 0)) || a.name.localeCompare(b.name))
+    .map((p, idx, arr) => ({
+      playerId: p.playerId,
+      name: p.name,
+      animal: p.animal,
+      status: p.status,
+      ready: p.ready,
+      score: p.score,
+      arrows: typeof p.arrows === 'number' ? p.arrows : 2,
+      eliminated: !!p.eliminated,
+      rank: 1 + arr.filter((x) => x.score > p.score).length,
+      lastSeenAt: p.lastSeenAt
+    }));
+}
+
+function buildState() {
+  const publicGameState = JSON.parse(JSON.stringify(SESSION.gameState || {}));
+  delete publicGameState.impostorIds;
+  if (SESSION.phase === 'GAME_C' && !SESSION.resultsShown) delete publicGameState.realPrice;
+  return {
+    sessionId: SESSION.id,
+    createdAt: SESSION.createdAt,
+    updatedAt: SESSION.updatedAt,
+    started: SESSION.started,
+    paused: SESSION.paused,
+    phase: SESSION.phase,
+    phaseIndex: SESSION.phaseIndex,
+    phaseTimer: SESSION.phaseTimer,
+    answerLocked: SESSION.answerLocked,
+    resultsShown: SESSION.resultsShown,
+    tvMuted: SESSION.tvMuted,
+    lastTvAudioError: SESSION.lastTvAudioError,
+    councilMode: SESSION.councilMode,
+    councilPenalty: SESSION.councilPenalty,
+    immunityPlayerId: SESSION.immunityPlayerId,
+    finaleTop: SESSION.finaleTop,
+    playerCount: SESSION.players.size,
+    rankings: rankPlayers(),
+    gameState: publicGameState,
+    gameAProgress: gameProgress(),
+    gameProgress: gameProgress(),
+    history: SESSION.history.slice(-10),
+    gameCatalog: buildGameCatalog(),
+    previewGame: SESSION.previewGame
+  };
+}
+
+function broadcastState() {
+  io.emit('game:state', buildState());
+}
+function publishResults(payload) {
+  io.emit('results:publish', payload);
+}
+
+function setPhase(phase) {
+  if (SESSION.phase === 'GAME_B' && phase !== 'GAME_B') clearGameBTimer();
+  SESSION.phase = phase;
+  SESSION.phaseIndex = FLOW.indexOf(phase);
+  SESSION.phaseStartedAt = nowIso();
+  SESSION.answerLocked = false;
+  SESSION.paused = false;
+  SESSION.previewGame = null;
+  SESSION.lastAward = null;
+  SESSION.phaseTimer = { running: false, endsAt: null, remainingMs: 0 };
+  SESSION.resultsShown = false;
+}
+
+function nextPhase() {
+  const idx = FLOW.indexOf(SESSION.phase);
+  if (idx < FLOW.length - 1) setPhase(FLOW[idx + 1]);
+}
+
+function startTimer(seconds) {
+  const ms = Math.max(0, Number(seconds || 0) * 1000);
+  SESSION.phaseTimer = { running: ms > 0, endsAt: ms ? now() + ms : null, remainingMs: ms };
+}
+function pauseTimer() {
+  if (!SESSION.phaseTimer.running || !SESSION.phaseTimer.endsAt) return;
+  SESSION.phaseTimer.remainingMs = Math.max(0, SESSION.phaseTimer.endsAt - now());
+  SESSION.phaseTimer.running = false;
+  SESSION.phaseTimer.endsAt = null;
+}
+function resumeTimer() {
+  if (SESSION.phaseTimer.running || !SESSION.phaseTimer.remainingMs) return;
+  SESSION.phaseTimer.running = true;
+  SESSION.phaseTimer.endsAt = now() + SESSION.phaseTimer.remainingMs;
+}
+
+function initPhaseState(phase, options = {}) {
+  if (phase === 'GAME_A') {
+    const selectedIndex = Math.max(0, Number(options?.index || 0));
+    const launchSnapshot = connectedActivePlayers().map((p) => p.playerId);
+    SESSION.gameState = {
+      key: 'GAME_A',
+      index: selectedIndex,
+      question: CONFIG.susceptibleQuestions[selectedIndex] || '',
+      answers: {},
+      eligibleVoters: launchSnapshot,
+      eligibleTargets: launchSnapshot,
+      completed: false
+    };
+  } else if (phase === 'GAME_B') {
+    const count = Math.max(1, Math.min(15, Number(options?.count || 1)));
+    const seconds = Math.max(10, Math.min(60, Number(options?.seconds || 20)));
+    const bank = Array.isArray(CONFIG.freeQuestions) ? CONFIG.freeQuestions : [];
+    const shuffled = [...bank].sort(() => Math.random() - 0.5);
+    const picked = shuffled.slice(0, Math.min(count, shuffled.length));
+    SESSION.gameState = {
+      key: 'GAME_B',
+      title: '1 bonne réponse par question',
+      stage: 'QUESTION',
+      questions: picked.map((q, idx) => ({
+        index: idx,
+        prompt: String(q?.q || `Question ${idx + 1}`),
+        answer: String(q?.a || '')
+      })),
+      secondsPerQuestion: seconds,
+      currentIndex: -1,
+      reviewIndex: 0,
+      answersByQuestion: {},
+      completed: false
+    };
+    advanceGameBQuestion();
+  } else if (phase === 'GAME_C') {
+    const selectedIndex = Math.max(0, Number(options?.index || 0));
+    const item = CONFIG.price[selectedIndex] || { item: 'Item', price: 100 };
+    SESSION.gameState = { key: 'GAME_C', index: selectedIndex, item: item.item, realPrice: item.price, maxPrice: Math.max(0, Number(item.price) * 5), withoutOver: true, answers: {}, completed: false };
+  } else if (phase === 'GAME_D') {
+    const selectedIndex = Math.max(0, Number(options?.index || 0));
+    const t = CONFIG.blindtest[selectedIndex] || {};
+    SESSION.gameState = {
+      key: 'GAME_D',
+      index: selectedIndex,
+      prompt: String(t.prompt || t.title || `Chanson ${selectedIndex + 1}`),
+      answer: String(t.answer || t.artist || ''),
+      songTitle: String(t.title || t.prompt || `Chanson ${selectedIndex + 1}`),
+      artist: String(t.artist || t.answer || 'Artiste inconnu'),
+      stage: 'INTRO',
+      awards: {},
+      winners: [],
+      completed: false
+    };
+  } else if (phase === 'GAME_E') {
+    const ids = activePlayers().map((p) => p.playerId);
+    const pairs = [];
+    for (let i = 0; i < ids.length; i += 2) {
+      if (ids[i + 1]) pairs.push([ids[i], ids[i + 1]]);
+      else pairs.push([ids[i], null]);
+    }
+    SESSION.gameState = { key: 'GAME_E', round: 1, maxRounds: 3, pairs, choices: {}, completed: false, byeBonus: 2 };
+  } else if (phase === 'GAME_F') {
+    const contenders = activePlayers().map((p) => p.playerId).filter((pid) => {
+      const pl = SESSION.players.get(pid); ensurePlayerArrows(pl); return pl.arrows > 0;
+    });
+    const playerColors = {};
+    contenders.forEach((pid, idx) => { playerColors[pid] = ['#ff595e','#ffca3a','#8ac926','#1982c4','#6a4c93','#f72585','#4cc9f0','#ffd166'][idx % 8]; });
+    SESSION.gameState = { key: 'GAME_F', name: 'Vise bien ou fais toi des amis', stage: 'AIM', shots: {}, breakChoice: null, results: null, contenders, playerColors, completed: false };
+  } else if (phase === 'GAME_G') {
+    const ids = activePlayers().map((p) => p.playerId);
+    const shuffled = [...ids].sort(() => Math.random() - 0.5);
+    const impCount = Math.max(1, Math.min(2, Math.floor(ids.length / 3) || 1));
+    const impostorIds = shuffled.slice(0, impCount);
+    const roles = {};
+    ids.forEach((pid) => { roles[pid] = impostorIds.includes(pid) ? 'IMPOSTOR' : 'NEUTRAL'; });
+    SESSION.gameState = {
+      key: 'GAME_G',
+      stage: 'WORD_REVEAL',
+      word: 'Aventure',
+      impostorIds,
+      roles,
+      alreadyPlayed: [],
+      passageOrder: [],
+      hasSeenWord: {},
+      votes: {},
+      selectedPlayerId: null,
+      announced: false,
+      results: null
+    };
+  } else if (phase === 'GAME_H') {
+    if (totemRevealTimer) {
+      clearTimeout(totemRevealTimer);
+      totemRevealTimer = null;
+    }
+    SESSION.gameState = { key: 'GAME_H', stage: 'HIDDEN', revealAt: null, clickedAt: {}, results: null, completed: false };
+  } else if (phase === 'GAME_I') {
+    SESSION.gameState = { key: 'GAME_I', stage: 'CHOOSING', doorChoices: {}, winningDoor: null, results: null, completed: false };
+  } else if (phase === 'COUNCIL') {
+    SESSION.gameState = { key: 'COUNCIL', votes: {}, noSelfVote: true, completed: false };
+  } else if (phase === 'FINAL') {
+    const finalists = rankPlayers().filter((p) => !p.eliminated).slice(0, SESSION.finaleTop);
+    SESSION.gameState = { key: 'FINAL', finalists: finalists.map((f) => f.playerId), question: 'Question finale: Combien de minutes dure 1 heure ?', answer: '60', bets: {}, answers: {}, completed: false };
+  } else {
+    SESSION.gameState = { key: phase };
+  }
+}
+
+function clearGameBTimer() {
+  if (gameBTimer) {
+    clearTimeout(gameBTimer);
+    gameBTimer = null;
+  }
+}
+
+function serializeGameBAnswers(index) {
+  const out = [];
+  const bucket = SESSION.gameState?.answersByQuestion?.[index] || {};
+  for (const [pid, rec] of Object.entries(bucket)) {
+    const name = SESSION.players.get(pid)?.name || pid;
+    out.push({ playerId: pid, name, answer: rec.answer || '', validated: !!rec.validated, at: rec.at || 0 });
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
+function setGameBReview(index) {
+  const qCount = SESSION.gameState.questions.length;
+  const next = Math.max(0, Math.min(qCount - 1, Number(index || 0)));
+  SESSION.gameState.reviewIndex = next;
+  SESSION.gameState.stage = 'REVIEW';
+  SESSION.gameState.completed = true;
+  SESSION.gameState.reviewAnswers = serializeGameBAnswers(next);
+}
+
+function enterGameBReview() {
+  clearGameBTimer();
+  if (!SESSION.gameState?.questions?.length) return;
+  setGameBReview(0);
+  SESSION.answerLocked = true;
+  SESSION.resultsShown = true;
+}
+
+function advanceGameBQuestion() {
+  if (SESSION.phase !== 'GAME_B') return;
+  const g = SESSION.gameState || {};
+  if (!Array.isArray(g.questions) || !g.questions.length) return;
+  const next = g.currentIndex + 1;
+  if (next >= g.questions.length) {
+    enterGameBReview();
+    touch();
+    broadcastState();
+    return;
+  }
+  clearGameBTimer();
+  g.currentIndex = next;
+  g.stage = 'QUESTION';
+  g.questionStartedAt = nowIso();
+  g.currentAnswers = serializeGameBAnswers(next);
+  startTimer(g.secondsPerQuestion);
+  gameBTimer = setTimeout(() => {
+    if (SESSION.phase !== 'GAME_B' || SESSION.gameState?.stage !== 'QUESTION') return;
+    advanceGameBQuestion();
+  }, g.secondsPerQuestion * 1000);
+  touch();
+  broadcastState();
+}
+
+function resolveGameA() {
+  const votes = SESSION.gameState.answers;
+  const tally = {};
+  Object.values(votes).forEach((target) => { tally[target] = (tally[target] || 0) + 1; });
+
+  const sortedTop = Object.entries(tally).sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]));
+  const top3 = sortedTop.slice(0, 3).map(([playerId, votesCount]) => ({ playerId, votesCount }));
+  const topVotes = sortedTop[0]?.[1] || 0;
+  const tiedTopPlayerIds = topVotes > 0 ? sortedTop.filter(([, count]) => count === topVotes).map(([pid]) => pid) : [];
+  const uniqueTopPlayerId = tiedTopPlayerIds.length === 1 ? tiedTopPlayerIds[0] : null;
+  const top = tiedTopPlayerIds[0] || null;
+
+  const voteCountsByPlayer = Object.fromEntries(sortedTop.map(([pid, count]) => [pid, count]));
+  const impacts = {};
+  for (const p of SESSION.players.values()) {
+    ensurePlayerScore(p);
+    let delta = 0;
+    const votedFor = votes[p.playerId];
+    if (votedFor && uniqueTopPlayerId && votedFor === uniqueTopPlayerId) delta += 1;
+    if (tiedTopPlayerIds.includes(p.playerId)) delta -= 2;
+    if (votedFor && voteCountsByPlayer[votedFor] === 1) delta -= 1;
+    p.score += delta;
+    impacts[p.playerId] = delta;
+  }
+  const payload = { game: 'A', tally, top, tiedTopPlayerIds, top3, impacts };
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), game: 'A', winner: top, tally, top3, impacts });
+  publishResults(payload);
+}
+
+function showResultsCurrentPhase() {
+  if (SESSION.resultsShown) return;
+  if (SESSION.phase === 'GAME_A') resolveGameA();
+  else if (SESSION.phase === 'GAME_B') {
+    if (SESSION.gameState?.stage === 'QUESTION') enterGameBReview();
+    resolveGameB();
+  }
+  else if (SESSION.phase === 'GAME_C') resolveGameC();
+  else if (SESSION.phase === 'GAME_D') resolveGameD();
+  else if (SESSION.phase === 'GAME_E') resolveGameERound();
+  else if (SESSION.phase === 'GAME_F') resolveGameF();
+  else if (SESSION.phase === 'GAME_G') resolveGameG();
+  else if (SESSION.phase === 'COUNCIL') resolveCouncil();
+  else if (SESSION.phase === 'FINAL') resolveFinal();
+  else return;
+  if (SESSION.phase === 'GAME_F' && SESSION.gameState?.stage === 'BREAK_SELECT') {
+    SESSION.answerLocked = false;
+    SESSION.resultsShown = true;
+    return;
+  }
+  SESSION.answerLocked = true;
+  SESSION.resultsShown = true;
+}
+
+function resetSession() {
+  clearGameBTimer();
+  SESSION.players.clear();
+  SESSION.socketsByPlayerId.clear();
+  SESSION.phase = 'LOBBY';
+  SESSION.phaseIndex = FLOW.indexOf('LOBBY');
+  SESSION.phaseStartedAt = null;
+  SESSION.phaseTimer = { running: false, endsAt: null, remainingMs: 0 };
+  SESSION.answerLocked = false;
+  SESSION.resultsShown = false;
+  SESSION.gameState = {};
+  SESSION.history = [];
+  SESSION.immunityPlayerId = null;
+  SESSION.started = false;
+  SESSION.paused = false;
+  SESSION.previewGame = null;
+  SESSION.lastAward = null;
+  SESSION.lastScoreDeltas = {};
+  SESSION.joinSeqCounter = 0;
+}
+
+function resolveGameB() {
+  const g = SESSION.gameState || {};
+  const payload = {
+    game: 'B',
+    mode: 'manual_review',
+    questions: (g.questions || []).map((q, idx) => ({
+      index: idx,
+      question: q.prompt,
+      expected: q.answer,
+      answers: serializeGameBAnswers(idx)
+    }))
+  };
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), game: 'B', reviewed: payload.questions.length });
+  publishResults(payload);
+}
+
+function resolveGameC() {
+  const real = Number(SESSION.gameState.realPrice);
+  const list = Object.entries(SESSION.gameState.answers).map(([pid, v]) => ({ pid, value: Number(v) }));
+  const valid = list.filter((x) => !Number.isNaN(x.value));
+  const sortedDesc = [...valid].sort((a, b) => b.value - a.value);
+  const underOrEqual = [...valid].filter((x) => x.value <= real).sort((a, b) => (real - a.value) - (real - b.value));
+  const first = underOrEqual[0]?.pid || null;
+  const second = underOrEqual[1]?.pid || null;
+  if (first && SESSION.players.get(first)) {
+    ensurePlayerScore(SESSION.players.get(first));
+    SESSION.players.get(first).score += 2;
+  }
+  if (second && SESSION.players.get(second)) {
+    ensurePlayerScore(SESSION.players.get(second));
+    SESSION.players.get(second).score += 1;
+  }
+  const payload = {
+    game: 'C',
+    real,
+    first,
+    second,
+    answers: sortedDesc,
+    closestUnder: underOrEqual.map((x) => x.pid).slice(0, 2)
+  };
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), game: 'C', real, first, second });
+  publishResults(payload);
+}
+
+function resolveGameD() {
+  const winners = [];
+  for (const [pid, parts] of Object.entries(SESSION.gameState.awards || {})) {
+    const title = !!parts?.title;
+    const artist = !!parts?.artist;
+    const gained = (title ? 0.5 : 0) + (artist ? 0.5 : 0);
+    if (!gained) continue;
+    const p = SESSION.players.get(pid);
+    if (!p) continue;
+    ensurePlayerScore(p);
+    p.score += gained;
+    winners.push({ pid, title, artist, gained });
+  }
+  winners.sort((a, b) => b.gained - a.gained || (SESSION.players.get(a.pid)?.name || '').localeCompare(SESSION.players.get(b.pid)?.name || ''));
+  const payload = { game: 'D', songTitle: SESSION.gameState.songTitle, artist: SESSION.gameState.artist, winners };
+  SESSION.gameState.winners = winners;
+  SESSION.gameState.results = payload;
+  SESSION.gameState.stage = 'RESULT';
+  SESSION.gameState.completed = true;
+  SESSION.history.push({ at: nowIso(), game: 'D', songTitle: SESSION.gameState.songTitle, artist: SESSION.gameState.artist, winners });
+  publishResults(payload);
+}
+
+function resolveGameERound() {
+  const choices = SESSION.gameState.choices;
+  const gains = {};
+  SESSION.gameState.pairs.forEach(([a, b]) => {
+    if (!b) { gains[a] = (gains[a] || 0) + SESSION.gameState.byeBonus; return; }
+    const ca = choices[a]; const cb = choices[b];
+    if (!ca || !cb) return;
+    const pa = ca === 'SHARE'; const pb = cb === 'SHARE';
+    if (pa && pb) { gains[a] = (gains[a] || 0) + 3; gains[b] = (gains[b] || 0) + 3; }
+    else if (!pa && pb) { gains[a] = (gains[a] || 0) + 5; gains[b] = (gains[b] || 0) + 0; }
+    else if (pa && !pb) { gains[a] = (gains[a] || 0) + 0; gains[b] = (gains[b] || 0) + 5; }
+    else { gains[a] = (gains[a] || 0) + 1; gains[b] = (gains[b] || 0) + 1; }
+  });
+  Object.entries(gains).forEach(([pid, pts]) => {
+    const p = SESSION.players.get(pid); if (!p) return; ensurePlayerScore(p); p.score += pts;
+  });
+  const payload = { game: 'E', round: SESSION.gameState.round, gains, choices };
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), game: 'E', round: SESSION.gameState.round, gains });
+  publishResults(payload);
+}
+
+
+function resolveGameF() {
+  const contenders = (SESSION.gameState.contenders || []).filter((pid) => {
+    const p = SESSION.players.get(pid); if (!p) return false; ensurePlayerArrows(p); return p.arrows > 0;
+  });
+  const shots = SESSION.gameState.shots || {};
+  const firedEntries = [];
+  const noShot = [];
+  contenders.forEach((pid) => {
+    const shot = shots[pid] || {};
+    if (typeof shot.horizontal !== 'number' || typeof shot.vertical !== 'number') {
+      noShot.push(pid);
+      const p = SESSION.players.get(pid);
+      if (p) { ensurePlayerArrows(p); p.arrows = Math.max(0, p.arrows - 1); }
+      return;
+    }
+    const x = Math.max(-100, Math.min(100, Number(shot.horizontal || 0)));
+    const y = Math.max(-100, Math.min(100, Number(shot.vertical || 0)));
+    const distance = Math.sqrt((x * x) + (y * y));
+    firedEntries.push({ pid, x, y, distance });
+  });
+  if (!firedEntries.length) {
+    const alive = activePlayers().filter((pl) => { ensurePlayerArrows(pl); return pl.arrows > 0; });
+    const winner = alive.length === 1 ? alive[0].playerId : null;
+    const payloadNoShot = { game: 'F', stage: 'AIM', shots: [], closest: null, farthest: null, noShot, winner, playerColors: SESSION.gameState.playerColors || {} };
+    SESSION.gameState.stage = 'AIM';
+    SESSION.gameState.results = payloadNoShot;
+    if (!winner) SESSION.gameState.shots = {};
+    publishResults(payloadNoShot);
+    return;
+  }
+  firedEntries.sort((a, b) => a.distance - b.distance);
+  const closest = firedEntries[0]?.pid || null;
+  const farthest = firedEntries[firedEntries.length - 1]?.pid || null;
+  if (farthest && SESSION.players.get(farthest)) {
+    ensurePlayerArrows(SESSION.players.get(farthest));
+    SESSION.players.get(farthest).arrows = Math.max(0, SESSION.players.get(farthest).arrows - 1);
+  }
+  const payload = { game: 'F', stage: 'BREAK_SELECT', shots: firedEntries, closest, farthest, noShot, playerColors: SESSION.gameState.playerColors || {} };
+  SESSION.gameState.stage = 'BREAK_SELECT';
+  SESSION.gameState.results = payload;
+  SESSION.gameState.closest = closest;
+  SESSION.gameState.farthest = farthest;
+  SESSION.history.push({ at: nowIso(), game: 'F', closest, farthest, noShot, shots: firedEntries });
+  publishResults(payload);
+}
+
+function resolveCouncil() {
+  const tally = {};
+  Object.entries(SESSION.gameState.votes).forEach(([, target]) => {
+    if (!target || target === SESSION.immunityPlayerId) return;
+    tally[target] = (tally[target] || 0) + 1;
+  });
+  const loser = Object.entries(tally).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+  if (loser) {
+    const p = SESSION.players.get(loser);
+    if (p) {
+      if (SESSION.councilMode === 'ELIMINATION') p.eliminated = true;
+      else p.score -= SESSION.councilPenalty;
+    }
+  }
+  const payload = { game: 'COUNCIL', tally, loser, mode: SESSION.councilMode, immunity: SESSION.immunityPlayerId };
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), council: payload });
+  publishResults(payload);
+}
+
+function resolveFinal() {
+  const answer = norm(SESSION.gameState.answer);
+  const winners = [];
+  SESSION.gameState.finalists.forEach((pid) => {
+    const p = SESSION.players.get(pid); if (!p) return;
+    ensurePlayerScore(p);
+    const bet = Math.max(0, Math.min(5, Number(SESSION.gameState.bets[pid] || 0)));
+    const a = norm(SESSION.gameState.answers[pid] || '');
+    if (a === answer) { p.score += bet; winners.push(pid); }
+    else p.score -= bet;
+  });
+  const podium = rankPlayers().slice(0, 3).map((p) => p.playerId);
+  const payload = { game: 'FINAL', winners, podium };
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), game: 'FINAL', winners, podium });
+  publishResults(payload);
+}
+
+function resolveGameG(revealedPlayerId) {
+  const g = SESSION.gameState || {};
+  const impostorIds = Array.isArray(g.impostorIds) ? g.impostorIds : [];
+  let chosen = String(revealedPlayerId || g.selectedPlayerId || '');
+  if (!chosen) {
+    const tally = {};
+    Object.values(g.votes || {}).forEach((pid) => {
+      tally[pid] = (tally[pid] || 0) + 1;
+    });
+    chosen = Object.entries(tally).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
+  }
+  if (!chosen) return;
+  const targetIsImpostor = impostorIds.includes(chosen);
+  const impacts = {};
+  for (const p of SESSION.players.values()) {
+    ensurePlayerScore(p);
+    let delta = 0;
+    if (targetIsImpostor) {
+      if (!impostorIds.includes(p.playerId)) delta = 1;
+    } else if (impostorIds.includes(p.playerId)) delta = 2;
+    p.score += delta;
+    impacts[p.playerId] = delta;
+  }
+  const payload = { game: 'G', impostorIds, revealedPlayerId: chosen, selectedPlayerId: chosen, targetIsImpostor, impacts };
+  SESSION.gameState.results = payload;
+  SESSION.gameState.selectedPlayerId = chosen;
+  SESSION.gameState.announced = true;
+  SESSION.history.push({ at: nowIso(), game: 'G', impostorIds, revealedPlayerId: chosen, targetIsImpostor });
+  publishResults(payload);
+}
+
+function resolveGameH() {
+  const g = SESSION.gameState || {};
+  const revealAt = Number(g.revealAt || now());
+  const entries = Object.entries(g.clickedAt || {})
+    .map(([pid, ts]) => ({ pid, ts: Number(ts), deltaMs: Math.max(0, Number(ts) - revealAt) }))
+    .sort((a, b) => a.deltaMs - b.deltaMs);
+  const points = [3, 2, 1];
+  const impacts = {};
+  entries.forEach((entry, idx) => {
+    const p = SESSION.players.get(entry.pid);
+    if (!p) return;
+    ensurePlayerScore(p);
+    const delta = points[idx] || 0;
+    p.score += delta;
+    impacts[entry.pid] = delta;
+  });
+  const payload = { game: 'H', entries, impacts, top5: entries.slice(0, 5) };
+  SESSION.gameState.ranking = entries;
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), game: 'H', entries: entries.slice(0, 5) });
+  publishResults(payload);
+}
+
+function resolveGameI() {
+  const g = SESSION.gameState || {};
+  const winningDoor = Number.isInteger(g.winningDoor) ? g.winningDoor : (1 + Math.floor(Math.random() * 3));
+  g.winningDoor = winningDoor;
+  const impacts = {};
+  for (const [pid, door] of Object.entries(g.doorChoices || {})) {
+    const p = SESSION.players.get(pid);
+    if (!p) continue;
+    ensurePlayerScore(p);
+    const delta = Number(door) === winningDoor ? 5 : 0;
+    p.score += delta;
+    impacts[pid] = delta;
+  }
+  const payload = { game: 'I', winningDoor, choices: g.doorChoices || {}, impacts };
+  SESSION.gameState.results = payload;
+  SESSION.history.push({ at: nowIso(), game: 'I', winningDoor });
+  publishResults(payload);
+}
+
+
+function sendJson(res, status, payload) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(payload));
+}
 const publicDir = path.join(__dirname, 'public');
-const ROOM_CODE_RE = /^[A-Z0-9]{4,8}$/;
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
-const SESSION_COOKIE = 'party_tv_room';
-const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
-const ROOM_TTL_MS = 30 * 60 * 1000;
-const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
-
-function nowMs() {
-  return Date.now();
-}
-
-function setSecurityHeaders(res) {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Referrer-Policy', 'same-origin');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-}
-
-function parseRoomCode(raw) {
-  const code = String(raw || '').toUpperCase().trim();
-  if (!ROOM_CODE_RE.test(code)) return '';
-  return code;
-}
-
-function parseCookies(req) {
-  const raw = String((req && req.headers && req.headers.cookie) || '');
-  if (!raw) return {};
-  return raw.split(';').reduce((acc, part) => {
-    const idx = part.indexOf('=');
-    if (idx <= 0) return acc;
-    const key = part.slice(0, idx).trim();
-    const val = decodeURIComponent(part.slice(idx + 1).trim());
-    if (key) acc[key] = val;
-    return acc;
-  }, {});
-}
-
-function createRateLimiter(limit, windowMs) {
-  const state = new Map();
-  return function allowed(key) {
-    const k = String(key || 'unknown');
-    const t = nowMs();
-    const rec = state.get(k);
-    if (!rec || (t - rec.start) > windowMs) {
-      state.set(k, { start: t, count: 1 });
-      return true;
-    }
-    if (rec.count >= limit) return false;
-    rec.count += 1;
-    return true;
-  };
-}
-
-function contentTypeFor(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  const types = {
-    '.html': 'text/html; charset=utf-8',
-    '.css': 'text/css; charset=utf-8',
-    '.js': 'text/javascript; charset=utf-8',
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.svg': 'image/svg+xml',
-    '.ico': 'image/x-icon',
-    '.json': 'application/json; charset=utf-8'
-  };
-  return types[ext] || 'application/octet-stream';
-}
-
-// Statique
-function serveStatic(req, res) {
-  let urlPath = req.url.split('?')[0];
-  if (urlPath === '/healthz') {
-    setSecurityHeaders(res);
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ ok: true }));
-    return;
-  }
-  if (urlPath === '/qr') {
-    const reqUrl = new URL(req.url, 'http://localhost');
-    const data = String(reqUrl.searchParams.get('data') || '').slice(0, 512);
-    if (!data) {
-      setSecurityHeaders(res);
-      res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('missing data');
-      return;
-    }
-    QRCode.toBuffer(data, {
-      errorCorrectionLevel: 'M',
-      margin: 1,
-      width: 260,
-      type: 'png'
-    }, (err, buffer) => {
-      if (err) {
-        setSecurityHeaders(res);
-        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end('qr_error');
-        return;
-      }
-      setSecurityHeaders(res);
-      res.writeHead(200, {
-        'Content-Type': 'image/png',
-        'Cache-Control': 'no-store, max-age=0'
-      });
-      res.end(buffer);
-    });
-    return;
-  }
-  if (urlPath === '/') urlPath = '/index.html';
-  if (urlPath === '/tv') {
-    const cookies = parseCookies(req);
-    const savedRoom = parseRoomCode(cookies[SESSION_COOKIE]);
-    if (savedRoom) {
-      setSecurityHeaders(res);
-      res.writeHead(302, {
-        Location: '/tv.html?room=' + encodeURIComponent(savedRoom),
-        'Set-Cookie': SESSION_COOKIE + '=; Max-Age=0; Path=/; SameSite=Lax'
-      });
-      res.end();
-      return;
-    }
-    urlPath = '/tv.html';
-  }
-  if (urlPath === '/join') urlPath = '/join.html';
-
-  const resolvedPath = path.resolve(publicDir, '.' + urlPath);
-  const baseDir = publicDir.endsWith(path.sep) ? publicDir : (publicDir + path.sep);
-  if (!(resolvedPath === publicDir || resolvedPath.startsWith(baseDir))) {
-    setSecurityHeaders(res);
-    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('403 Forbidden');
-    return;
-  }
-
-  const filePath = resolvedPath;
-
-  fs.stat(filePath, function (err, stat) {
-    if (err || !stat.isFile()) {
-      setSecurityHeaders(res);
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('404 Not Found');
-      return;
-    }
-    fs.readFile(filePath, function (err2, data) {
-      if (err2) {
-        setSecurityHeaders(res);
-        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end('500 Internal Server Error');
-        return;
-      }
-      setSecurityHeaders(res);
-      res.writeHead(200, { 'Content-Type': contentTypeFor(filePath) });
-      res.end(data);
-    });
+function serveFile(res, filePath) {
+  fs.readFile(filePath, (err, data) => {
+    if (err) return sendJson(res, 404, { error: 'Not found' });
+    const ext = path.extname(filePath);
+    const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.md': 'text/plain; charset=utf-8', '.mp3': 'audio/mpeg' };
+    res.writeHead(200, { 'Content-Type': types[ext] || 'application/octet-stream' });
+    res.end(data);
   });
 }
 
-const httpServer = http.createServer(serveStatic);
-const io = new Server(httpServer, {
-  cors: { origin: CORS_ORIGIN },
-  maxHttpBufferSize: 1e5
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const pathname = url.pathname;
+  let decodedPathname = pathname;
+  try {
+    decodedPathname = decodeURIComponent(pathname);
+  } catch {
+    return sendJson(res, 400, { error: 'Bad Request' });
+  }
+  if (pathname === '/healthz') return sendJson(res, 200, { ok: true, phase: SESSION.phase });
+  if (pathname === '/' || pathname === '/index.html') return serveFile(res, path.join(publicDir, 'index.html'));
+  if (pathname === '/admin') return serveFile(res, path.join(publicDir, 'admin.html'));
+  if (pathname === '/join') return serveFile(res, path.join(publicDir, 'join.html'));
+  if (pathname === '/tv') return serveFile(res, path.join(publicDir, 'tv.html'));
+  const fp = path.resolve(publicDir, `.${decodedPathname}`);
+  if (fp !== publicDir && !fp.startsWith(`${publicDir}${path.sep}`)) return sendJson(res, 403, { error: 'Forbidden' });
+  if (fs.existsSync(fp)) return serveFile(res, fp);
+  return sendJson(res, 404, { error: 'Not found' });
 });
 
-// rooms -> { players: Map<socketId,{name}>, scores: Map<name,number>, gameId, game, locked: boolean }
-const rooms = new Map();
-const canCreateRoom = createRateLimiter(8, 60 * 1000);
-const canJoinRoom = createRateLimiter(30, 60 * 1000);
+const io = new Server(server, { cors: { origin: CORS_ORIGIN, credentials: true }, transports: ['websocket', 'polling'] });
 
-function touchRoom(room) {
-  room.updatedAt = nowMs();
-}
-
-function getRoom(code) {
-  let r = rooms.get(code);
-  if (!r) {
-    r = { players: new Map(), scores: new Map(), profiles: new Map(), gameId: 'buzzer', game: {}, locked: false, updatedAt: nowMs() };
-    games['buzzer'].init(r);
-    rooms.set(code, r);
-  }
-  touchRoom(r);
-  return r;
-}
-
-function broadcastRoomState(code) {
-  const r = rooms.get(code);
-  if (!r) return;
-  io.to(code).emit('room:state', { locked: !!r.locked });
-}
-
-function cleanName(name) {
-  const n = String(name || '').replace(/[^a-zA-Z0-9 _.-]/g, '').trim().slice(0, 16);
-  return n || 'Joueur';
-}
-
-function cleanColor(raw) {
-  const c = String(raw || '').trim();
-  return /^#[0-9A-Fa-f]{6}$/.test(c) ? c : '#ff5f7e';
-}
-
-function uniqueName(code, desired) {
-  const r = getRoom(code);
-  let base = desired;
-  let name = base;
-  let i = 2;
-  const taken = new Set(Array.from(r.players.values()).map(p => p.name));
-  while (taken.has(name)) name = base + '#' + (i++);
-  return name;
-}
-
-function broadcastPlayers(code) {
-  const r = rooms.get(code);
-  if (!r) return;
-  const listMap = new Map();
-  r.scores.forEach((score, name) => {
-    const profile = r.profiles && r.profiles.get(name);
-    listMap.set(name, { name, score, connected: false, color: profile && profile.color ? profile.color : null });
-  });
-  r.players.forEach(p => {
-    const profile = r.profiles && r.profiles.get(p.name);
-    const item = listMap.get(p.name) || { name: p.name, score: 0, connected: false, color: profile && profile.color ? profile.color : null };
-    item.connected = true;
-    listMap.set(p.name, item);
-  });
-  const list = Array.from(listMap.values()).sort((a, b) => (b.score - a.score) || a.name.localeCompare(b.name));
-  io.to(code).emit('room:players', list);
-}
-
-function ensureGame(code, gameId) {
-  const r = getRoom(code);
-  const id = games[gameId] ? gameId : 'buzzer';
-  r.gameId = id;
-  games[id].init(r);
-  touchRoom(r);
-  io.to(code).emit('mode:changed', { mode: id });
-  io.to(code).emit('round:reset');
-  return r;
-}
-
-function socketIp(socket) {
-  return socket.handshake.address || socket.conn.remoteAddress || socket.id;
-}
-
-function hasAdminAccess(payload) {
-  if (!ADMIN_TOKEN) return true;
-  const provided = String(payload && payload.adminToken || '');
-  return provided && provided === ADMIN_TOKEN;
-}
-
-setInterval(() => {
-  const limit = nowMs() - ROOM_TTL_MS;
-  rooms.forEach((room, code) => {
-    if (room.players.size === 0 && room.updatedAt < limit) rooms.delete(code);
-  });
-}, CLEANUP_INTERVAL_MS);
+function isAdmin(socket) { return SESSION.adminSocketId === socket.id; }
 
 io.on('connection', (socket) => {
-  let role = null;
-  let roomCode = null;
-  let playerName = null;
+  socket.emit('game:state', buildState());
 
-  socket.on('tv:create_room', (payload, ack) => {
-    const ipKey = socketIp(socket);
-    if (!canCreateRoom(ipKey)) { ack && ack({ ok: false, error: 'rate_limited' }); return; }
-    const code = parseRoomCode(payload && payload.code);
-    if (!code) { ack && ack({ ok: false, error: 'invalid_room' }); return; }
-    if (!hasAdminAccess(payload)) { ack && ack({ ok: false, error: 'unauthorized' }); return; }
-    roomCode = code;
-    role = 'tv';
-    const r = getRoom(roomCode);
-    socket.join(roomCode);
-    socket.emit('room:ready', { code: roomCode });
-    socket.emit('mode:changed', { mode: r.gameId });
-    broadcastPlayers(roomCode);
-    broadcastRoomState(roomCode);
-    ack && ack({ ok: true, code: roomCode });
+  socket.on('admin:auth', (data = {}, ack) => {
+    const { password } = data;
+    if (password !== ADMIN_PASSWORD) return ack?.({ ok: false, error: 'UNAUTHORIZED' });
+    if (SESSION.adminSocketId && SESSION.adminSocketId !== socket.id) io.to(SESSION.adminSocketId).emit('admin:revoked', { reason: 'NEW_ADMIN_CONNECTED' });
+    SESSION.adminSocketId = socket.id;
+    ack?.({ ok: true, state: buildState() });
+    broadcastState();
   });
 
-  socket.on('player:join', (payload, ack) => {
-    const ipKey = socketIp(socket);
-    if (!canJoinRoom(ipKey)) { ack && ack({ ok: false, error: 'rate_limited' }); return; }
-    const code = parseRoomCode(payload && payload.room);
-    const desired = cleanName(payload && payload.name);
-    const color = cleanColor(payload && payload.color);
-    if (!code || !desired) { ack && ack({ ok: false, error: 'missing' }); return; }
-    const r = getRoom(code);
-    if (r.locked) { ack && ack({ ok: false, error: 'locked' }); return; }
-    const finalName = uniqueName(code, desired);
-    playerName = finalName;
-    roomCode = code;
-    r.players.set(socket.id, { name: finalName, color });
-    r.profiles.set(finalName, { color });
-    if (!r.scores.has(finalName)) r.scores.set(finalName, 0);
-    touchRoom(r);
-    socket.join(code);
-    ack && ack({ ok: true, name: finalName });
-    socket.emit('mode:changed', { mode: r.gameId });
-    broadcastPlayers(code);
-  });
-
-  socket.on('tv:remember', ({ room }, ack) => {
-    if (role !== 'tv') { ack && ack({ ok: false }); return; }
-    const code = parseRoomCode(room);
-    if (!code) { ack && ack({ ok: false, error: 'invalid_room' }); return; }
-    roomCode = code;
-    const r = getRoom(code);
-    socket.join(code);
-    socket.emit('room:ready', { code });
-    socket.emit('mode:changed', { mode: r.gameId });
-    broadcastPlayers(code);
-    broadcastRoomState(code);
-    ack && ack({ ok: true, code });
-  });
-
-  // Verrouillage manuel (optionnel)
-  socket.on('room:lock', (locked) => {
-    if (role !== 'tv' || !roomCode) return;
-    const r = getRoom(roomCode);
-    r.locked = !!locked;
-    touchRoom(r);
-    broadcastRoomState(roomCode);
-  });
-
-  // Changement de jeu (TV)
-  socket.on('mode:set', ({ mode }) => {
-    if (role !== 'tv' || !roomCode) return;
-    ensureGame(roomCode, mode);
-  });
-
-  // Countdown (rebroadcast)
-  socket.on('countdown:start', (seconds = 3) => {
-    if (role !== 'tv' || !roomCode) return;
-    const s = Math.max(1, Math.min(60, parseInt(seconds, 10) || 3));
-    io.to(roomCode).emit('countdown:start', { seconds: s });
-  });
-
-  // Reset tour/question générique (TV)
-  socket.on('round:reset', () => {
-    if (role !== 'tv' || !roomCode) return;
-    const r = getRoom(roomCode);
-    games[r.gameId].init(r);
-    r.locked = false;
-    touchRoom(r);
-    io.to(roomCode).emit('round:reset');
-    broadcastRoomState(roomCode);
-  });
-
-  // Reset scores (TV)
-  socket.on('scores:reset', () => {
-    if (role !== 'tv' || !roomCode) return;
-    const r = getRoom(roomCode);
-    const newScores = new Map();
-    r.players.forEach(p => newScores.set(p.name, 0));
-    r.scores = newScores;
-    touchRoom(r);
-    io.to(roomCode).emit('scores:reset');
-    broadcastPlayers(roomCode);
-  });
-
-  socket.on('scores:adjust', ({ name, delta }) => {
-    if (role !== 'tv' || !roomCode) return;
-    const r = getRoom(roomCode);
-    const player = String(name || '').trim();
-    const d = Math.max(-5, Math.min(5, parseInt(delta, 10) || 0));
-    if (!player || !d || !r.scores.has(player)) return;
-    const next = Math.max(0, (r.scores.get(player) || 0) + d);
-    r.scores.set(player, next);
-    touchRoom(r);
-    broadcastPlayers(roomCode);
-  });
-
-  // BUZZER
-  socket.on('buzz:open', () => {
-    if (role !== 'tv' || !roomCode) return;
-    const r = getRoom(roomCode);
-    if (r.gameId !== 'buzzer') return;
-    r.locked = true;
-    broadcastRoomState(roomCode);
-    games.buzzer.adminOpen(io, r, roomCode);
-    touchRoom(r);
-  });
-
-  socket.on('buzz:press', (ack) => {
-    if (!roomCode) { ack && ack({ ok: false }); return; }
-    const r = getRoom(roomCode);
-    if (r.gameId !== 'buzzer') { ack && ack({ ok: false }); return; }
-    games.buzzer.playerPress(io, r, roomCode, (playerName || 'Joueur'), ack, broadcastPlayers);
-    // Déverrouillage à la fin d'un buzz (gagnant trouvé)
-    r.locked = false;
-    touchRoom(r);
-    broadcastRoomState(roomCode);
-  });
-
-  // QUIZ
-  socket.on('quiz:start', ({ question, correct, seconds }) => {
-    if (role !== 'tv' || !roomCode) return;
-    let r = getRoom(roomCode);
-    if (r.gameId !== 'quiz') r = ensureGame(roomCode, 'quiz');
-    r.locked = true;
-    broadcastRoomState(roomCode);
-    games.quiz.adminStart(io, r, roomCode, { question, correct, seconds });
-    touchRoom(r);
-  });
-
-  socket.on('quiz:answer', ({ answer }, ack) => {
-    if (!roomCode) { ack && ack({ ok: false }); return; }
-    const r = getRoom(roomCode);
-    if (r.gameId !== 'quiz') { ack && ack({ ok: false }); return; }
-    games.quiz.playerAnswer(io, r, roomCode, (playerName || 'Joueur'), !!answer, ack);
-    touchRoom(r);
-  });
-
-  socket.on('quiz:close', () => {
-    if (role !== 'tv' || !roomCode) return;
-    const r = getRoom(roomCode);
-    if (r.gameId !== 'quiz') return;
-    games.quiz.adminClose(io, r, roomCode, broadcastPlayers);
-    r.locked = false;
-    touchRoom(r);
-    broadcastRoomState(roomCode);
-  });
-
-  // GUESS (Devine le nombre)
-  socket.on('guess:start', ({ question, correct, min, max, seconds }) => {
-    if (role !== 'tv' || !roomCode) return;
-    let r = getRoom(roomCode);
-    if (r.gameId !== 'guess') r = ensureGame(roomCode, 'guess');
-    r.locked = true;
-    broadcastRoomState(roomCode);
-    games.guess.adminStart(io, r, roomCode, { question, correct, min, max, seconds });
-    touchRoom(r);
-  });
-
-  socket.on('guess:answer', ({ value }, ack) => {
-    if (!roomCode) { ack && ack({ ok: false }); return; }
-    const r = getRoom(roomCode);
-    if (r.gameId !== 'guess') { ack && ack({ ok: false }); return; }
-    games.guess.playerAnswer(io, r, roomCode, (playerName || 'Joueur'), value, ack);
-    touchRoom(r);
-  });
-
-  socket.on('guess:close', () => {
-    if (role !== 'tv' || !roomCode) return;
-    const r = getRoom(roomCode);
-    if (r.gameId !== 'guess') return;
-    games.guess.adminClose(io, r, roomCode, broadcastPlayers);
-    r.locked = false;
-    touchRoom(r);
-    broadcastRoomState(roomCode);
-  });
-
-  // FREE (Réponse Libre) - Single
-	socket.on('free:start', ({ question, seconds, answer }) => { if (role !== 'tv' || !roomCode) return; let r = getRoom(roomCode); if (r.gameId !== 'free') r = ensureGame(roomCode, 'free'); r.locked = true; broadcastRoomState(roomCode); 
-	// IMPORTANT: transmettre answer 
-	games.free.adminStart(io, r, roomCode, { question, seconds, answer }); touchRoom(r); });
-
-  socket.on('free:answer', ({ text }, ack) => {
-    if (!roomCode) { ack && ack({ ok: false }); return; }
-    const r = getRoom(roomCode);
-    if (r.gameId !== 'free') { ack && ack({ ok: false }); return; }
-    games.free.playerAnswer(io, r, roomCode, (playerName || 'Joueur'), text, ack);
-    touchRoom(r);
-  });
-
-  socket.on('free:close', () => {
-    if (role !== 'tv' || !roomCode) return;
-    const r = getRoom(roomCode);
-    if (r.gameId !== 'free') return;
-    games.free.adminClose(io, r, roomCode);
-    r.locked = false;
-    touchRoom(r);
-    broadcastRoomState(roomCode);
-  });
-
-  socket.on('free:toggle_validate', ({ name }) => {
-    if (role !== 'tv' || !roomCode) return;
-    const r = getRoom(roomCode);
-    if (r.gameId !== 'free') return;
-    const player = String(name || '').trim();
-    if (!player) return;
-    games.free.adminToggleValidate(io, r, roomCode, player, broadcastPlayers);
-    touchRoom(r);
-  });
-
-  // FREE - Series
-	socket.on('free:series:start', ({ items }) => {
-    if (role !== 'tv' || !roomCode) return;
-    let r = getRoom(roomCode);
-    if (r.gameId !== 'free') r = ensureGame(roomCode, 'free');
-    r.locked = true;
-    broadcastRoomState(roomCode);
-    games.free.adminSeriesStart(io, r, roomCode, { items });
-    // démarrer immédiatement
-    games.free.adminSeriesNextQuestion(io, r, roomCode);
-    touchRoom(r);
-  });
-
-  socket.on('free:series:next_question', () => {
-    if (role !== 'tv' || !roomCode) return;
-    const r = getRoom(roomCode);
-    if (r.gameId !== 'free') return;
-    games.free.adminSeriesNextQuestion(io, r, roomCode);
-    touchRoom(r);
-  });
-
-  socket.on('free:series:finish', () => {
-    if (role !== 'tv' || !roomCode) return;
-    const r = getRoom(roomCode);
-    if (r.gameId !== 'free') return;
-    games.free.adminSeriesFinish(io, r, roomCode);
-    touchRoom(r);
-    // locked restera true jusqu'à fin de la review manuelle -> on déverrouille quand l'animateur quitte l'overlay si besoin
-  });
-
-  socket.on('free:series:goto_index', ({ index }) => {
-    if (role !== 'tv' || !roomCode) return;
-    const r = getRoom(roomCode);
-    if (r.gameId !== 'free') return;
-    games.free.adminSeriesGotoIndex(io, r, roomCode, index);
-    touchRoom(r);
-  });
-
-
-  // MOST (Qui est le plus)
-  socket.on('most:start', ({ question, seconds }) => {
-    if (role !== 'tv' || !roomCode) return;
-    let r = getRoom(roomCode);
-    if (r.gameId !== 'most') r = ensureGame(roomCode, 'most');
-    r.locked = true;
-    broadcastRoomState(roomCode);
-    games.most.adminStart(io, r, roomCode, { question, seconds });
-    touchRoom(r);
-  });
-
-  socket.on('most:vote', ({ target }, ack) => {
-    if (!roomCode) { ack && ack({ ok: false }); return; }
-    const r = getRoom(roomCode);
-    if (r.gameId !== 'most') { ack && ack({ ok: false }); return; }
-    games.most.playerVote(io, r, roomCode, (playerName || 'Joueur'), target, ack);
-    touchRoom(r);
-  });
-
-  socket.on('most:close', () => {
-    if (role !== 'tv' || !roomCode) return;
-    const r = getRoom(roomCode);
-    if (r.gameId !== 'most') return;
-    games.most.adminClose(io, r, roomCode);
-    r.locked = false;
-    touchRoom(r);
-    broadcastRoomState(roomCode);
-  });
-
-  socket.on('player:kick', ({ name }) => {
-    if (role !== 'tv' || !roomCode) return;
-    const r = getRoom(roomCode);
-    const target = String(name || '').trim();
-    if (!target) return;
-    let targetSocket = null;
-    r.players.forEach((p, sid) => {
-      if (!targetSocket && p.name === target) targetSocket = sid;
-    });
-    if (!targetSocket) return;
-    const targetSock = io.sockets.sockets.get(targetSocket);
-    if (targetSock) {
-      targetSock.emit('player:kicked');
-      targetSock.leave(roomCode);
-      targetSock.disconnect(true);
+  socket.on('admin:command', (data = {}, ack) => {
+    const { command, payload } = data;
+    if (!isAdmin(socket)) return ack?.({ ok: false, error: 'UNAUTHORIZED' });
+    if (command === 'START') {
+      SESSION.started = true; setPhase('INTRO'); startTimer(10); initPhaseState('INTRO');
+    } else if (command === 'NEXT') {
+      if (SESSION.phase === 'GAME_A') resolveGameA();
+      if (SESSION.phase === 'GAME_B') resolveGameB();
+      if (SESSION.phase === 'GAME_C') resolveGameC();
+      if (SESSION.phase === 'GAME_D') resolveGameD();
+      if (SESSION.phase === 'GAME_E') resolveGameERound();
+      if (SESSION.phase === 'GAME_G') resolveGameG();
+      if (SESSION.phase === 'GAME_H') resolveGameH();
+      if (SESSION.phase === 'GAME_I') resolveGameI();
+      if (SESSION.phase === 'COUNCIL') resolveCouncil();
+      if (SESSION.phase === 'FINAL') resolveFinal();
+      nextPhase(); initPhaseState(SESSION.phase);
+    } else if (command === 'PAUSE') { SESSION.paused = true; pauseTimer(); }
+    else if (command === 'RESUME') { SESSION.paused = false; resumeTimer(); }
+    else if (command === 'LOCK_ANSWERS') { SESSION.answerLocked = !!payload?.locked; }
+    else if (command === 'FORCE_END') {
+      if (SESSION.phase.startsWith('GAME_')) {
+        if (SESSION.phase === 'GAME_A') resolveGameA();
+        if (SESSION.phase === 'GAME_B') resolveGameB();
+        if (SESSION.phase === 'GAME_C') resolveGameC();
+        if (SESSION.phase === 'GAME_D') resolveGameD();
+        if (SESSION.phase === 'GAME_E') resolveGameERound();
+        if (SESSION.phase === 'GAME_G') resolveGameG();
+        if (SESSION.phase === 'GAME_H') resolveGameH();
+        if (SESSION.phase === 'GAME_I') resolveGameI();
+      }
+      if (SESSION.phase === 'COUNCIL') resolveCouncil();
+      if (SESSION.phase === 'FINAL') resolveFinal();
+      nextPhase(); initPhaseState(SESSION.phase);
+    } else if (command === 'RESET_PHASE') { initPhaseState(SESSION.phase); }
+    else if (command === 'SKIP') { nextPhase(); initPhaseState(SESSION.phase); }
+    else if (command === 'SET_IMMUNITY') { SESSION.immunityPlayerId = payload?.playerId || null; }
+    else if (command === 'SET_COUNCIL_MODE') { SESSION.councilMode = payload?.mode === 'PENALTY' ? 'PENALTY' : 'ELIMINATION'; }
+    else if (command === 'TV_SCREEN') { if (TV_SCREENS.includes(payload?.screen)) SESSION.phase = payload.screen; }
+    else if (command === 'PREVIEW_GAME') {
+      const game = String(payload?.game || 'GAME_A');
+      const questionIndex = Math.max(0, Number(payload?.questionIndex || 0));
+      SESSION.previewGame = { game, questionIndex };
+      setPhase('WAITING');
+      SESSION.gameState = { key: 'PREVIEW', game, questionIndex };
     }
-    r.players.delete(targetSocket);
-    r.scores.delete(target);
-    if (r.profiles) r.profiles.delete(target);
-    touchRoom(r);
-    broadcastPlayers(roomCode);
+    else if (command === 'LAUNCH_GAME') {
+      const game = String(payload?.game || 'GAME_A');
+      const allowedGames = ['GAME_A', 'GAME_B', 'GAME_C', 'GAME_D', 'GAME_E', 'GAME_F', 'GAME_G', 'GAME_H', 'GAME_I'];
+      if (!allowedGames.includes(game)) return ack?.({ ok: false, error: 'UNSUPPORTED_GAME' });
+      SESSION.started = true;
+      SESSION.previewGame = { game, questionIndex: Number(payload?.questionIndex || 0) };
+      setPhase(game);
+      initPhaseState(game, {
+        index: Number(payload?.questionIndex || 0),
+        count: Number(payload?.count || 1),
+        seconds: Number(payload?.seconds || 20),
+        manualItem: String(payload?.manualItem || ''),
+        manualPrice: Number(payload?.manualPrice)
+      });
+      SESSION.previewGame = { game, ...gameBrief(game) };
+      if (game !== 'GAME_D') SESSION.previewGame = null;
+    }
+    else if (command === 'GAME_B_REVIEW_GOTO') {
+      if (SESSION.phase !== 'GAME_B') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      if (!Array.isArray(SESSION.gameState?.questions) || !SESSION.gameState.questions.length) return ack?.({ ok: false, error: 'NO_QUESTIONS' });
+      setGameBReview(Number(payload?.index || 0));
+      resolveGameB();
+    }
+    else if (command === 'GAME_G_NEXT_STAGE') {
+      if (SESSION.phase !== 'GAME_G') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      const g = SESSION.gameState || {};
+      if (g.stage === 'WORD_REVEAL') g.stage = 'PASSAGES';
+      else if (g.stage === 'PASSAGES') g.stage = 'VOTE';
+      else if (g.stage === 'VOTE') g.stage = 'RESULT';
+      else return ack?.({ ok: false, error: 'INVALID_STAGE' });
+    }
+    else if (command === 'GAME_G_DRAW_PLAYER') {
+      if (SESSION.phase !== 'GAME_G') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      const g = SESSION.gameState || {};
+      if (g.stage !== 'PASSAGES') return ack?.({ ok: false, error: 'INVALID_STAGE' });
+      const pool = activePlayers().map((p) => p.playerId).filter((pid) => !g.alreadyPlayed.includes(pid));
+      const filtered = g.alreadyPlayed.length === 0 ? pool.filter((pid) => !g.impostorIds.includes(pid)) : pool;
+      const source = filtered.length ? filtered : pool;
+      if (!source.length) return ack?.({ ok: false, error: 'NO_PLAYER_LEFT' });
+      const picked = source[Math.floor(Math.random() * source.length)];
+      g.alreadyPlayed.push(picked);
+      g.passageOrder.push(picked);
+    }
+    else if (command === 'GAME_G_REVEAL_RESULT') {
+      if (SESSION.phase !== 'GAME_G') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      resolveGameG(payload?.revealedPlayerId);
+      SESSION.resultsShown = true;
+      SESSION.answerLocked = true;
+      SESSION.gameState.stage = 'RESULT';
+    }
+    else if (command === 'GAME_H_REVEAL') {
+      if (SESSION.phase !== 'GAME_H') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      SESSION.gameState.stage = 'REVEALED';
+      SESSION.gameState.revealAt = now();
+      if (totemRevealTimer) { clearTimeout(totemRevealTimer); totemRevealTimer = null; }
+    }
+    else if (command === 'GAME_I_REVEAL') {
+      if (SESSION.phase !== 'GAME_I') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      resolveGameI();
+      SESSION.resultsShown = true;
+      SESSION.answerLocked = true;
+      SESSION.gameState.stage = 'RESULT';
+    }
+    else if (command === 'GAME_D_AWARD') {
+      if (SESSION.phase !== 'GAME_D') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      const pid = String(payload?.playerId || '');
+      if (!SESSION.players.has(pid)) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
+      const type = payload?.type;
+      SESSION.gameState.awards = SESSION.gameState.awards || {};
+      SESSION.gameState.awards[pid] = SESSION.gameState.awards[pid] || { title: false, artist: false };
+      if (type === 'FULL') {
+        SESSION.gameState.awards = { [pid]: { title: true, artist: true } };
+      } else if (type === 'TITLE') {
+        SESSION.gameState.awards[pid].title = !SESSION.gameState.awards[pid].title;
+      } else if (type === 'ARTIST') {
+        SESSION.gameState.awards[pid].artist = !SESSION.gameState.awards[pid].artist;
+      } else {
+        return ack?.({ ok: false, error: 'INVALID_TYPE' });
+      }
+      resolveGameD();
+      SESSION.resultsShown = true;
+      SESSION.answerLocked = true;
+    }
+    else if (command === 'GAME_D_NEXT_SONG') {
+      if (SESSION.phase !== 'GAME_D') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      const bank = Array.isArray(CONFIG.blindtest) ? CONFIG.blindtest : [];
+      const next = (Number(SESSION.gameState.index || 0) + 1) % Math.max(1, bank.length || 1);
+      const q = bank[next] || {};
+      SESSION.gameState.index = next;
+      SESSION.gameState.prompt = String(q.prompt || q.title || `Chanson ${next + 1}`);
+      SESSION.gameState.answer = String(q.answer || q.artist || '');
+      SESSION.gameState.songTitle = String(q.title || q.prompt || `Chanson ${next + 1}`);
+      SESSION.gameState.artist = String(q.artist || q.answer || 'Artiste inconnu');
+      SESSION.gameState.awards = {};
+      SESSION.gameState.winners = [];
+      SESSION.gameState.stage = 'INTRO';
+      SESSION.gameState.results = null;
+      SESSION.resultsShown = false;
+      SESSION.answerLocked = false;
+    }
+    else if (command === 'FINISH_GAME') {
+      setPhase('END');
+      SESSION.gameState = { key: 'END', finalRanking: rankPlayers() };
+      SESSION.resultsShown = true;
+    }
+    else if (command === 'GAME_B_TOGGLE_VALIDATE') {
+      if (SESSION.phase !== 'GAME_B') return ack?.({ ok: false, error: 'INVALID_PHASE' });
+      if (SESSION.gameState?.stage !== 'REVIEW') return ack?.({ ok: false, error: 'NOT_IN_REVIEW' });
+      const qIdx = SESSION.gameState.reviewIndex;
+      const pid = String(payload?.playerId || '');
+      if (!pid) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
+      const bucket = SESSION.gameState.answersByQuestion[qIdx] || {};
+      const rec = bucket[pid] || { answer: '', at: 0, validated: false };
+      rec.validated = !rec.validated;
+      bucket[pid] = rec;
+      SESSION.gameState.answersByQuestion[qIdx] = bucket;
+      const player = SESSION.players.get(pid);
+      if (player) {
+        ensurePlayerScore(player);
+        player.score = Math.max(0, player.score + (rec.validated ? 1 : -1));
+      }
+      SESSION.gameState.reviewAnswers = serializeGameBAnswers(qIdx);
+      resolveGameB();
+    }
+    else if (command === 'RESTORE_ARROW') {
+      const pid = String(payload?.playerId || '');
+      const p = SESSION.players.get(pid);
+      if (!p) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
+      ensurePlayerArrows(p);
+      p.arrows = Math.min(2, p.arrows + 1);
+    }
+    else if (command === 'UPDATE_SCORE') {
+      const pid = String(payload?.playerId || '');
+      const p = SESSION.players.get(pid);
+      if (!p) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
+      ensurePlayerScore(p);
+      if (typeof payload?.delta !== 'undefined') {
+        addScore(pid, Number(payload.delta) || 0);
+      } else if (typeof payload?.score !== 'undefined') {
+        p.score = Number(payload.score) || 0;
+      } else {
+        return ack?.({ ok: false, error: 'INVALID_SCORE_PAYLOAD' });
+      }
+    }
+    else if (command === 'GAME_PREVIEW') {
+      const game = String(payload?.game || '');
+      SESSION.previewGame = game ? { game, ...gameBrief(game) } : null;
+    }
+    else if (command === 'GAME_D_START') {
+      if (SESSION.phase !== 'GAME_D') return ack?.({ ok:false, error:'INVALID_PHASE' });
+      SESSION.gameState.stage = 'PLAYING';
+      SESSION.previewGame = null;
+    }
+    else if (command === 'GAME_D_TOGGLE') {
+      if (SESSION.phase !== 'GAME_D') return ack?.({ ok:false, error:'INVALID_PHASE' });
+      const pid=String(payload?.playerId||'');
+      const part = payload?.part === 'artist' ? 'artist' : 'title';
+      const player=SESSION.players.get(pid);
+      if(!player) return ack?.({ok:false,error:'PLAYER_NOT_FOUND'});
+      const rec = (SESSION.gameState.awardsByPid && SESSION.gameState.awardsByPid[pid]) || { title:false, artist:false };
+      const before = (rec.title?0.5:0) + (rec.artist?0.5:0);
+      rec[part] = !rec[part];
+      const after = (rec.title?0.5:0) + (rec.artist?0.5:0);
+      SESSION.gameState.awardsByPid = SESSION.gameState.awardsByPid || {};
+      SESSION.gameState.awardsByPid[pid] = rec;
+      addScore(pid, after - before);
+      SESSION.lastAward = { at: nowIso(), playerId: pid, name: player.name, delta: after - before };
+    }
+    else if (command === 'GAME_G_SELECT') {
+      if (SESSION.phase !== 'GAME_G') return ack?.({ ok:false, error:'INVALID_PHASE' });
+      SESSION.gameState.selectedPlayerId = String(payload?.playerId||'');
+    }
+    else if (command === 'GAME_G_ANNOUNCE') {
+      if (SESSION.phase !== 'GAME_G') return ack?.({ ok:false, error:'INVALID_PHASE' });
+      resolveGameG();
+      SESSION.resultsShown = true;
+    }
+    else if (command === 'GAME_F_BREAK_ARROW') {
+      if (SESSION.phase !== 'GAME_F' || SESSION.gameState?.stage !== 'BREAK_SELECT') return ack?.({ ok:false, error:'INVALID_PHASE' });
+      const target = String(payload?.targetPlayerId || '');
+      const by = SESSION.gameState.closest;
+      const tp = SESSION.players.get(target);
+      if (!tp || !by) return ack?.({ ok:false, error:'PLAYER_NOT_FOUND' });
+      ensurePlayerArrows(tp);
+      tp.arrows = Math.max(0, tp.arrows - 1);
+      const alive = activePlayers().filter((pl)=>{ ensurePlayerArrows(pl); return pl.arrows > 0; });
+      const winner = alive.length===1 ? alive[0].playerId : null;
+      if (winner) addScore(winner, 2);
+      SESSION.gameState.breakChoice = { by, target };
+      SESSION.gameState.results = { ...(SESSION.gameState.results||{}), game:'F', breakChoice: SESSION.gameState.breakChoice, winner, winnerBonus: winner ? 2 : 0 };
+      SESSION.lastAward = winner ? { at: nowIso(), playerId:winner, name: SESSION.players.get(winner)?.name||winner, delta:2 } : null;
+      if (winner) SESSION.gameState.completed = true;
+      else { SESSION.gameState.stage='AIM'; SESSION.gameState.shots={}; SESSION.gameState.contenders = alive.map((pl)=>pl.playerId); }
+      SESSION.resultsShown = true;
+    }
+    else if (command === 'SHOW_RESULTS') {
+      showResultsCurrentPhase();
+    }
+    else if (command === 'SET_TV_MUTED') {
+      SESSION.tvMuted = !!payload?.muted;
+    }
+    else if (command === 'RESET_GAME') {
+      resetSession();
+      io.emit('game:reset', { at: nowIso() });
+    }
+    touch();
+    broadcastState();
+    ack?.({ ok: true });
+  });
+
+  socket.on('room:join', (data = {}, ack) => {
+    const { playerId, reconnectToken, name, animal } = data;
+    const pid = String(playerId || crypto.randomUUID());
+    const token = String(reconnectToken || crypto.randomUUID());
+    const existing = SESSION.players.get(pid);
+    if (existing && existing.reconnectToken !== token) return ack?.({ ok: false, error: 'INVALID_RECONNECT_TOKEN' });
+    const p = existing || { playerId: pid, reconnectToken: token, name: safeName(name), animal: safeAnimal(animal), ready: false, status: 'CONNECTED', score: 0, arrows: 2, eliminated: false, lastSeenAt: nowIso(), joinSeq: ++SESSION.joinSeqCounter };
+    p.name = safeName(name || p.name); p.animal = safeAnimal(animal || p.animal); p.status = 'CONNECTED'; ensurePlayerArrows(p); p.lastSeenAt = nowIso();
+    SESSION.players.set(pid, p); SESSION.socketsByPlayerId.set(socket.id, pid); socket.data.playerId = pid;
+    touch();
+    broadcastState();
+    io.emit('presence:update', { playerId: pid, status: 'CONNECTED', lastSeenAt: p.lastSeenAt });
+    ack?.({ ok: true, player: { ...p } });
+  });
+
+  socket.on('player:update', (data = {}, ack) => {
+    const { playerId, ready } = data;
+    const p = SESSION.players.get(String(playerId || socket.data.playerId || ''));
+    if (!p) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
+    if (typeof ready !== 'undefined') p.ready = !!ready;
+    p.lastSeenAt = nowIso();
+    touch(); broadcastState(); ack?.({ ok: true });
+  });
+
+  socket.on('game:action', (data = {}, ack) => {
+    const { type, payload = {} } = data;
+    const pid = String(socket.data.playerId || payload?.playerId || '');
+    const p = SESSION.players.get(pid);
+    if (!p) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
+    if (!phaseAllowsActions()) return ack?.({ ok: false, error: 'PHASE_LOCKED' });
+
+    if (SESSION.phase === 'GAME_A' && type === 'A_VOTE') {
+      const eligibleVoters = Array.isArray(SESSION.gameState.eligibleVoters) ? SESSION.gameState.eligibleVoters : [];
+      const eligibleTargets = Array.isArray(SESSION.gameState.eligibleTargets) ? SESSION.gameState.eligibleTargets : [];
+      if (eligibleVoters.length && !eligibleVoters.includes(pid)) return ack?.({ ok: false, error: 'INVALID_VOTER' });
+      if (SESSION.gameState.answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
+      const target = String(payload?.targetPlayerId || '');
+      if (target === pid) return ack?.({ ok: false, error: 'NO_SELF_VOTE' });
+      if (eligibleTargets.length && !eligibleTargets.includes(target)) return ack?.({ ok: false, error: 'INVALID_TARGET' });
+      if (!isActivePlayerId(target)) return ack?.({ ok: false, error: 'INVALID_TARGET' });
+      SESSION.gameState.answers[pid] = target;
+    } else if (SESSION.phase === 'GAME_G' && type === 'G_FETCH_WORD') {
+      if (SESSION.gameState.stage !== 'WORD_REVEAL') return ack?.({ ok: false, error: 'INVALID_STAGE' });
+      const isImpostor = (SESSION.gameState.impostorIds || []).includes(pid);
+      return ack?.({ ok: true, isImpostor, word: SESSION.gameState.word || '' });
+    } else if (SESSION.phase === 'GAME_G' && type === 'G_CONFIRM_WORD') {
+      if (SESSION.gameState.stage !== 'WORD_REVEAL') return ack?.({ ok: false, error: 'INVALID_STAGE' });
+      SESSION.gameState.hasSeenWord[pid] = true;
+    } else if (SESSION.phase === 'GAME_G' && type === 'G_VOTE') {
+      if (SESSION.gameState.stage !== 'VOTE') return ack?.({ ok: false, error: 'INVALID_STAGE' });
+      if (SESSION.gameState.votes[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
+      const target = String(payload?.targetPlayerId || '');
+      if (!isActivePlayerId(target) || target === pid) return ack?.({ ok: false, error: 'INVALID_TARGET' });
+      SESSION.gameState.votes[pid] = target;
+    } else if (SESSION.phase === 'GAME_H' && type === 'H_GRAB_TOTEM') {
+      if (SESSION.gameState.stage !== 'REVEALED') return ack?.({ ok: false, error: 'TOO_EARLY' });
+      if (SESSION.gameState.clickedAt[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
+      SESSION.gameState.clickedAt[pid] = now();
+    } else if (SESSION.phase === 'GAME_I' && type === 'I_PICK_DOOR') {
+      if (SESSION.gameState.stage !== 'CHOOSING') return ack?.({ ok: false, error: 'INVALID_STAGE' });
+      if (SESSION.gameState.doorChoices[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
+      const door = Number(payload?.door);
+      if (![1,2,3].includes(door)) return ack?.({ ok: false, error: 'INVALID_DOOR' });
+      SESSION.gameState.doorChoices[pid] = door;
+    } else if (SESSION.phase === 'GAME_B' && type === 'B_ANSWER') {
+      const g = SESSION.gameState || {};
+      if (g.stage !== 'QUESTION') return ack?.({ ok: false, error: 'PHASE_LOCKED' });
+      const qIdx = g.currentIndex;
+      if (qIdx < 0) return ack?.({ ok: false, error: 'NO_ACTIVE_QUESTION' });
+      const answers = g.answersByQuestion[qIdx] || {};
+      if (answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
+      answers[pid] = {
+        answer: String(payload?.answer || '').slice(0, 240),
+        at: now(),
+        validated: !!answers[pid]?.validated
+      };
+      g.answersByQuestion[qIdx] = answers;
+      g.currentAnswers = serializeGameBAnswers(qIdx);
+      touch();
+      broadcastState();
+      return ack?.({ ok: true, questionIndex: qIdx, playerId: pid });
+    } else if (SESSION.phase === 'GAME_C' && type === 'C_GUESS') {
+      if (SESSION.gameState.answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
+      const max = Math.max(0, Number(SESSION.gameState.maxPrice || 0));
+      const raw = Number(payload?.value);
+      if (Number.isNaN(raw)) return ack?.({ ok: false, error: 'INVALID_VALUE' });
+      SESSION.gameState.answers[pid] = Math.max(0, Math.min(max, raw));
+    } else if (SESSION.phase === 'GAME_D' && type === 'D_TOP3') {
+      return ack?.({ ok: false, error: 'DISABLED_FOR_BLINDTEST' });
+    } else if (SESSION.phase === 'GAME_E' && type === 'E_CHOICE') {
+      if (SESSION.gameState.choices[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
+      SESSION.gameState.choices[pid] = payload?.choice === 'BETRAY' ? 'BETRAY' : 'SHARE';
+    } else if (SESSION.phase === 'GAME_F' && type === 'F_AIM_VERTICAL') {
+      ensurePlayerArrows(p);
+      if (p.arrows <= 0) return ack?.({ ok: false, error: 'NO_ARROWS_LEFT' });
+      const value = Number(payload?.value);
+      if (Number.isNaN(value)) return ack?.({ ok: false, error: 'INVALID_VALUE' });
+      SESSION.gameState.shots[pid] = SESSION.gameState.shots[pid] || {};
+      SESSION.gameState.shots[pid].vertical = Math.max(-100, Math.min(100, value));
+    } else if (SESSION.phase === 'GAME_F' && type === 'F_AIM_HORIZONTAL') {
+      ensurePlayerArrows(p);
+      if (p.arrows <= 0) return ack?.({ ok: false, error: 'NO_ARROWS_LEFT' });
+      const value = Number(payload?.value);
+      if (Number.isNaN(value)) return ack?.({ ok: false, error: 'INVALID_VALUE' });
+      SESSION.gameState.shots[pid] = SESSION.gameState.shots[pid] || {};
+      SESSION.gameState.shots[pid].horizontal = Math.max(-100, Math.min(100, value));
+    } else if (SESSION.phase === 'GAME_F' && type === 'F_BREAK_TARGET') {
+      ensurePlayerArrows(p);
+      if (p.arrows <= 0) return ack?.({ ok: false, error: 'NO_ARROWS_LEFT' });
+      if (SESSION.gameState.stage !== 'BREAK_SELECT') return ack?.({ ok: false, error: 'NOT_IN_BREAK_STAGE' });
+      if (pid !== SESSION.gameState.closest) return ack?.({ ok: false, error: 'NOT_BREAKER' });
+      const target = String(payload?.targetPlayerId || '');
+      if (!target || target === pid) return ack?.({ ok: false, error: 'INVALID_TARGET' });
+      const targetPlayer = SESSION.players.get(target);
+      if (!targetPlayer) return ack?.({ ok: false, error: 'PLAYER_NOT_FOUND' });
+      ensurePlayerArrows(targetPlayer);
+      targetPlayer.arrows = Math.max(0, targetPlayer.arrows - 1);
+      SESSION.gameState.breakChoice = { by: pid, target };
+      const alive = activePlayers().filter((pl) => {
+        ensurePlayerArrows(pl);
+        return pl.arrows > 0;
+      });
+      const winner = alive.length === 1 ? alive[0].playerId : null;
+      const payloadResult = { ...(SESSION.gameState.results || { game: 'F' }), breakChoice: SESSION.gameState.breakChoice, winner };
+      SESSION.gameState.results = payloadResult;
+      SESSION.history.push({ at: nowIso(), game: 'F', breakChoice: SESSION.gameState.breakChoice, winner });
+      publishResults(payloadResult);
+      if (winner) {
+        SESSION.gameState.completed = true;
+      } else {
+        const contenders = alive.map((pl) => pl.playerId);
+        SESSION.gameState.contenders = contenders;
+        SESSION.gameState.shots = {};
+        SESSION.gameState.stage = 'AIM';
+      }
+      SESSION.resultsShown = false;
+      SESSION.answerLocked = false;
+    } else if (SESSION.phase === 'COUNCIL' && type === 'COUNCIL_VOTE') {
+      if (SESSION.gameState.votes[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
+      const target = payload?.targetPlayerId;
+      if (SESSION.gameState.noSelfVote && target === pid) return ack?.({ ok: false, error: 'NO_SELF_VOTE' });
+      if (!isActivePlayerId(target)) return ack?.({ ok: false, error: 'INVALID_TARGET' });
+      SESSION.gameState.votes[pid] = target;
+    } else if (SESSION.phase === 'FINAL' && type === 'FINAL_BET_ANSWER') {
+      if (!SESSION.gameState.finalists.includes(pid)) return ack?.({ ok: false, error: 'NOT_FINALIST' });
+      if (SESSION.gameState.answers[pid]) return ack?.({ ok: false, error: 'ALREADY_ANSWERED' });
+      SESSION.gameState.bets[pid] = Math.max(0, Math.min(5, Number(payload?.bet || 0)));
+      SESSION.gameState.answers[pid] = String(payload?.answer || '');
+    } else return ack?.({ ok: false, error: 'INVALID_ACTION' });
+
+    touch();
+    broadcastState();
+    ack?.({ ok: true, receivedAt: nowIso() });
+  });
+
+  socket.on('tv:audio_error', (data = {}, ack) => {
+    const { reason } = data;
+    const error = { at: nowIso(), reason: String(reason || 'AUDIO_PLAYBACK_FAILED').slice(0, 180) };
+    SESSION.lastTvAudioError = error;
+    if (SESSION.adminSocketId) io.to(SESSION.adminSocketId).emit('admin:tv_audio_error', error);
+    touch();
+    broadcastState();
+    ack?.({ ok: true });
   });
 
   socket.on('disconnect', () => {
-    if (!roomCode) return;
-    const r = rooms.get(roomCode);
-    if (r) {
-      r.players.delete(socket.id);
-      broadcastPlayers(roomCode);
+    if (SESSION.adminSocketId === socket.id) SESSION.adminSocketId = null;
+    const pid = SESSION.socketsByPlayerId.get(socket.id);
+    if (pid && SESSION.players.has(pid)) {
+      const p = SESSION.players.get(pid);
+      p.status = 'DISCONNECTED'; p.lastSeenAt = nowIso();
+      SESSION.socketsByPlayerId.delete(socket.id);
+      touch(); broadcastState();
+      io.emit('presence:update', { playerId: pid, status: 'DISCONNECTED', lastSeenAt: p.lastSeenAt });
     }
+    SESSION.socketsByPlayerId.delete(socket.id);
   });
 });
 
-httpServer.listen(PORT, '0.0.0.0', function () {
-  console.log('Serveur avec Socket.IO demarre sur port ' + PORT);
-});
+setInterval(() => {
+  if (!SESSION.phaseTimer.running || !SESSION.phaseTimer.endsAt) return;
+  const remaining = SESSION.phaseTimer.endsAt - now();
+  if (remaining <= 0) {
+    SESSION.phaseTimer.running = false;
+    SESSION.phaseTimer.remainingMs = 0;
+    SESSION.phaseTimer.endsAt = null;
+    touch();
+    broadcastState();
+  } else {
+    SESSION.phaseTimer.remainingMs = remaining;
+  }
+}, 250);
+
+server.listen(PORT, () => console.log(`Koh Lanta engine running on http://localhost:${PORT}`));

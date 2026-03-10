@@ -1,378 +1,206 @@
-<!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8" />
-  <title>Party Buzzer 3.0 - TV/Admin</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="/style.css" />
-</head>
-<body class="tv-body">
-  <main class="container tv-layout-3 tight">
-    <header class="tv-header card">
-      <div class="tv-header-left"><h1 style="margin:0;">Party Buzzer 3.0</h1></div>
-      <div class="tv-header-right">
-        <div class="mode-switch" id="modeSwitch">
-          <label class="mode-pill"><input type="radio" name="mode" value="buzzer" checked /> Buzzer</label>
-          <label class="mode-pill"><input type="radio" name="mode" value="quiz" /> Quiz V/F</label>
-          <label class="mode-pill"><input type="radio" name="mode" value="guess" /> Devine</label>
-          <label class="mode-pill"><input type="radio" name="mode" value="free" /> Réponse libre</label>
-          <label class="mode-pill"><input type="radio" name="mode" value="most" /> Qui est le plus</label>
-        </div>
-      </div>
-    </header>
+<!doctype html><html lang="fr"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>TV</title><link rel="stylesheet" href="/style.css"/></head><body class="tv-stage">
+<main class="tv-layout">
+  <section class="tv-main">
+    <div id="gameBQuestionIndex" class="tv-gameb-index" style="display:none"></div>
+    <div id="bigQuestion" class="tv-question"></div>
+    <div id="questionTimer" class="tv-question-timer" style="display:none">⏱️ <span id="questionTimerValue">--</span>s</div>
+    <div id="bigRule" class="tv-rule"></div>
+    <div id="awardFlash" class="tv-award-flash" style="display:none"></div>
+    <div id="resultsBlock" class="tv-results" style="display:none"></div>
+  </section>
+  <aside class="tv-scoreboard"><h3>Classement</h3><ol id="scoreList"></ol></aside>
+</main>
+<audio id="bgMusic" src="/audio/Koh-Lanta Main Theme (Aventuri)  EPIC VERSION.mp3" loop autoplay></audio>
+<script src="/socket.io/socket.io.js"></script><script>
+const socket=io({transports:['websocket','polling']});
+const bigQuestion=document.getElementById('bigQuestion');
+const gameBQuestionIndex=document.getElementById('gameBQuestionIndex');
+const bigRule=document.getElementById('bigRule');
+const questionSeriesInfo=document.getElementById('questionSeriesInfo');
+const scoreList=document.getElementById('scoreList');
+const resultsBlock=document.getElementById('resultsBlock');
+const timerEl=document.getElementById('questionTimer');
+const timerValueEl=document.getElementById('questionTimerValue');
+const awardFlash=document.getElementById('awardFlash');
+const bgMusic=document.getElementById('bgMusic');
+bgMusic.volume=0.5;
+let audioErrorSent=false;
+let timerInterval=null;
+let lastTickSecond=null;
+const beepCtx = (window.AudioContext||window.webkitAudioContext) ? new (window.AudioContext||window.webkitAudioContext)() : null;
+function reportAudioError(reason){
+  if(audioErrorSent) return;
+  audioErrorSent=true;
+  socket.emit('tv:audio_error',{reason:String(reason||'AUDIO_PLAY_BLOCKED')});
+}
+function beep(){
+  if(!beepCtx) return;
+  if(beepCtx.state==='suspended') beepCtx.resume().catch(()=>{});
+  const o=beepCtx.createOscillator();
+  const g=beepCtx.createGain();
+  o.frequency.value=880;
+  o.type='square';
+  g.gain.value=0.05;
+  o.connect(g); g.connect(beepCtx.destination);
+  const t=beepCtx.currentTime;
+  o.start(t); o.stop(t+0.08);
+}
+function stopCountdown(){
+  if(timerInterval){ clearInterval(timerInterval); timerInterval=null; }
+  timerEl.style.display='none';
+  timerValueEl.textContent='--';
+  lastTickSecond=null;
+}
+function startCountdown(state){
+  stopCountdown();
+  if(state.phase!=='GAME_B' || state.gameState?.stage!=='QUESTION' || !state.phaseTimer?.endsAt){ return; }
+  timerEl.style.display='';
+  const tick=()=>{
+    const remain=Math.max(0, Math.ceil((Number(state.phaseTimer.endsAt)-Date.now())/1000));
+    timerValueEl.textContent=remain;
+    if(remain<=5 && remain>0 && remain!==lastTickSecond){ beep(); lastTickSecond=remain; }
+    if(remain<=0) stopCountdown();
+  };
+  tick();
+  timerInterval=setInterval(tick,200);
+}
 
-    <!-- Colonne gauche -->
-    <aside class="tv-left card">
-      <section class="tv-room">
-        <div class="row" style="display:flex; align-items:center; justify-content:space-between; gap:.8rem;">
-          <div>
-            <div class="hint">Code de salle</div>
-            <div class="code" id="roomCode"></div>
-          </div>
-          <div class="tv-qr">
-            <a id="qrLink" href="#" target="_blank" rel="noopener" title="Ouvrir la page de join">
-              <img id="qr" alt="QR code vers /join" width="120" height="120" />
-            </a>
-          </div>
-        </div>
-        <div class="row" style="display:flex; gap:.6rem; flex-wrap:wrap;">
-          <button id="regenBtn" title="Regénérer la salle">Nouvelle salle</button>
-        </div>
-        <p class="row"><a href="/">Retour à l'accueil</a></p>
-      </section>
+function gameMeta(game){
+  const map={
+    GAME_A:{name:'Jeu A — Susceptible de...',rules:'Vote pour un joueur (1 vote unique).',points:'Top visé: +1 | joueur top: -2 | vote isolé: -1'},
+    GAME_B:{name:'Jeu B — 1 bonne réponse',rules:'Réponds librement, validation en correction admin.',points:'Points accordés manuellement en correction'},
+    GAME_C:{name:'Jeu C — Le juste prix',rules:'Estime le prix sans le dépasser.',points:'+2 meilleur prix <= réel, +1 second meilleur <= réel'},
+    GAME_D:{name:'Jeu D — Blind test',rules:'Trouver titre et/ou artiste.',points:'🎵 titre +0,5 | 🎤 artiste +0,5'},
+    GAME_F:{name:"Jeu F — Tir à l'arc",rules:'Ajuste horizontal puis vertical.',points:'Règles dynamiques de survie'},
+    GAME_G:{name:'Jeu G — Imposteur',rules:'Identifier les imposteurs.',points:'+1 ou +2 selon le résultat'},
+    GAME_H:{name:'Jeu H — Totem caché',rules:'Clique le plus vite après apparition.',points:'Top 1: +3 | Top 2: +2 | Top 3: +1'},
+    GAME_I:{name:'Jeu I — Porte cachée',rules:'Choisir une porte.',points:'Récompense selon la porte gagnante'}
+  };
+  return map[game]||{name:game||'Jeu',rules:'',points:''};
+}
+function rulesFor(s){
+  if(s.phase==='WAITING'){
+    const meta=gameMeta(s.gameState?.game||s.previewGame?.game);
+    return `${meta.rules} • ${meta.points}`.trim();
+  }
+  const map={GAME_A:'Vote pour un joueur. 1 vote unique.',GAME_B:'1 bonne réponse par question. Répondez librement.',GAME_C:'Devine le juste prix le plus proche sans dépasser.',GAME_D:'Blind test: titre/artiste.',GAME_E:'Choisis PARTAGER ou TRAHIR.',GAME_F:'Vise verticalement puis horizontalement.',GAME_G:'Imposteur: observez les votes et les passages.',GAME_H:"Réagis dès l'apparition du totem.",GAME_I:'Choisissez une porte. Une seule cache le totem.',COUNCIL:'Vote contre un joueur.',FINAL:'Parie puis réponds à la question finale.',END:'🏆 Classement final'};
+  return map[s.phase]||'';
+}
+function questionFor(s){
+  const g=s.gameState||{};
+  if(s.phase==='GAME_A') return g.question||'Question en cours...';
+  if(s.phase==='GAME_B'){
+    if(g.stage==='QUESTION') return g.questions?.[g.currentIndex]?.prompt||'Question en cours...';
+    if(g.stage==='REVIEW') return g.questions?.[g.reviewIndex]?.prompt||'Correction en cours...';
+    return 'Question en cours...';
+  }
+  if(s.phase==='WAITING'){ const game=s.gameState?.game||s.previewGame?.game; const meta=gameMeta(game); return `${meta.name}`; }
+  if(s.phase==='GAME_C') return g.item?`Prix à estimer : ${g.item}`:'Question en cours...';
+  if(s.phase==='GAME_D') return g.stage==='RESULT' ? 'Résultat du blind test' : '🎵 Blind test en cours';
+  if(s.phase==='GAME_F') return 'Vise bien ou fais toi des amis';
+  if(s.phase==='GAME_G'){ if(g.stage==='WORD_REVEAL') return `Les aventuriers prennent connaissance de leur destin… (${Object.keys(g.hasSeenWord||{}).length}/${(s.rankings||[]).filter((p)=>!p.eliminated).length})`; if(g.stage==='PASSAGES') return `🔥 C'est au tour de : ${ (s.rankings||[]).find((p)=>p.playerId===g.passageOrder?.[g.passageOrder.length-1])?.name || '...'}`; if(g.stage==='VOTE') return "QUI EST L'IMPOSTEUR ?"; return 'Révélation finale'; }
+  if(s.phase==='GAME_H') return g.stage==='REVEALED' ? 'apres-totem.webp' : 'avant-totem.webp';
+  if(s.phase==='GAME_I') return g.stage==='RESULT' ? `Porte gagnante: ${g.results?.winningDoor||g.winningDoor||'?'}` : 'Porte cachée: 1, 2 ou 3';
+  if(s.phase==='FINAL') return g.question||'Question finale';
+  if(s.phase==='END') return '🏆 LE SURVIVANT DU FTOUR';
+  return '';
+}
+function arrowsIcons(p){
+  const total=2;
+  const left=Math.max(0,Math.min(total,Number(p.arrows??2)));
+  const broken=Math.max(0,total-left);
+  return `<span class='tv-arrows'>${'<img src="/Visuels/archery_arrow_intact.png" alt="flèche intacte"/>' .repeat(left)}${'<img src="/Visuels/archery_arrow_broken.png" alt="flèche cassée"/>' .repeat(broken)}</span>`;
+}
+function renderResults(s){
+  const r=s.gameState?.results;
+  if(!s.resultsShown||!r){resultsBlock.style.display='none'; resultsBlock.classList.remove('archery-results'); return;}
+  const nameById = Object.fromEntries((s.rankings||[]).map((p)=>[p.playerId,p.name]));
+  resultsBlock.classList.remove('archery-results');
+  if(r.game==='A'){
+    const top3=(r.top3||[]).map((x,idx)=>`<li>#${idx+1} ${nameById[x.playerId]||x.playerId} (${x.votesCount})</li>`).join('');
+    const impacts=(s.rankings||[]).map((p)=>{const d=(r.impacts||{})[p.playerId]||0; const cls=d>0?'plus':(d<0?'minus':''); const text=d>0?`+${d}`:`${d}`; return `<li>${p.name} <span class='${cls}'>${text}</span></li>`}).join('');
+    resultsBlock.innerHTML=`<h3>Top 3 des plus cités</h3><ol>${top3||'<li>Aucun</li>'}</ol><h3>Impact points</h3><ul>${impacts}</ul>`;
+  } else if(r.game==='F') {
+    const colors=r.playerColors||{};
+    const participatedShots=(r.shots||[]);
+    const shots=participatedShots.map((shot)=>{
+      const left=50 + (shot.x/2);
+      const top=50 - (shot.y/2);
+      const color=colors[shot.pid]||'#fff';
+      const name=nameById[shot.pid]||shot.pid;
+      return `<span class='archery-shot-wrap' style='left:${left}%;top:${top}%;color:${color}'><span class='archery-shot' style='background:${color}' title='${name}'></span><span class='archery-shot-name'>${name}</span></span>`;
+    }).join('');
+    const withDistance=participatedShots.map((shot)=>({
+      pid:shot.pid,
+      distance:Math.hypot(Number(shot.x)||0, Number(shot.y)||0)
+    }));
+    withDistance.sort((a,b)=>a.distance-b.distance);
+    const closestPid=withDistance[0]?.pid;
+    const farthestPid=withDistance[withDistance.length-1]?.pid;
+    const closest=nameById[closestPid]||closestPid||'-';
+    const farthest=nameById[farthestPid]||farthestPid||'-';
+    const breakInfo=r.breakChoice?`<p>${nameById[r.breakChoice.by]||r.breakChoice.by} casse une flèche de ${nameById[r.breakChoice.target]||r.breakChoice.target}</p>`:'';
+    const winner=r.winner?`<p><strong>🏆 Vainqueur: ${nameById[r.winner]||r.winner}</strong></p>`:'';
+    const noShot=(r.noShot||[]).length?`<p>❌ Sans tir (perdent 1 flèche): ${(r.noShot||[]).map((pid)=>nameById[pid]||pid).join(', ')}</p>`:'';
+    resultsBlock.classList.add('archery-results');
+    resultsBlock.innerHTML=`<h3>Résultats Tir à l'arc</h3><div class='archery-target'><img src='/Visuels/archery_target_board.webp' alt='Cible' loading='lazy' decoding='async' onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src=this.src.replace(/\.webp$/i,'.png');}"/>${shots}</div><p>🎯 Plus proche (participants): <strong>${closest}</strong></p><p>💥 Plus éloigné (participants): <strong>${farthest}</strong> (perd 1 flèche)</p>${noShot}${breakInfo}${winner}`;
+  } else if(r.game==='C') {
+    const closest=r.closestUnder||[];
+    const rows=(r.answers||[]).map((a)=>{
+      const name=nameById[a.pid]||a.pid;
+      const over=a.value>r.real;
+      const isTop=closest.includes(a.pid);
+      const pts=a.pid===r.first?'+2':(a.pid===r.second?'+1':'');
+      return `<li class='price-row ${over?'over':''} ${isTop?'under-best':''}'><span>${name}</span><span>${a.value} dh ${pts?`<strong>${pts}pt</strong>`:''}</span></li>`;
+    }).join('');
+    const refRow=`<li class='price-row price-ref'><span>🎯 Prix réel</span><span>${r.real} dh</span></li>`;
+    const mixed=[...(r.answers||[]),{pid:'__REAL__',value:r.real,real:true}].sort((a,b)=>b.value-a.value).map((e)=>{
+      if(e.real) return refRow;
+      const name=nameById[e.pid]||e.pid;
+      const over=e.value>r.real;
+      const isTop=closest.includes(e.pid);
+      const pts=e.pid===r.first?'+2':(e.pid===r.second?'+1':'');
+      return `<li class='price-row ${over?'over':''} ${isTop?'under-best':''}'><span>${name}</span><span>${e.value} dh ${pts?`<strong>${pts}pt</strong>`:''}</span></li>`;
+    }).join('');
+    resultsBlock.innerHTML=`<h3>Jeu C — Classement des prix (du + cher au - cher)</h3><ul class='price-list'>${mixed||'<li>Aucune réponse</li>'}</ul>`;
+  } else if(r.game==='D') {
+    const winnerRows=(r.winners||[]).map((w)=>`<li><strong>${nameById[w.pid]||w.pid}</strong> <span class='plus'>+${w.gained} pt</span></li>`).join('');
+    const big=(r.winners||[]).map((w)=>`<p class='blind-winner'>${nameById[w.pid]||w.pid} <span>+${w.gained}pt</span></p>`).join('');
+    resultsBlock.innerHTML=`<h3>Blind test</h3><p>Chanson: <strong>${r.songTitle||'—'}</strong> — ${r.artist||'—'}</p>${big||'<p>Aucun point attribué.</p>'}<ul>${winnerRows}</ul>`;
+  } else if(r.game==='B' && r.mode==='manual_review') {
+    const idx=Number(s.gameState?.reviewIndex||0);
+    const current=r.questions?.[idx]||r.questions?.[0]||{question:'',expected:'',answers:[]};
+    const cards=(current.answers||[]).map((it)=>`<article class='tv-free-answer-card ${it.validated?'validated':''}'><div class='tv-free-answer-name'>${it.name}</div><div class='tv-free-answer-text'>${it.answer||'—'}</div><div class='small ${it.validated?'plus':'minus'}'>${it.validated?'✅ Validée':'❌ Refusée'}</div></article>`).join('');
+    resultsBlock.innerHTML=`<h3>Jeu B — Correction ${idx+1}/${(r.questions||[]).length||1}</h3><p class='small'>Bonne réponse: <strong>${current.expected||'—'}</strong></p><div class='tv-free-answer-grid'>${cards||'<p>Aucune réponse</p>'}</div>`;
+  } else if(r.game==='H'){
+    const top=(r.top5||[]).map((e,idx)=>`<li>#${idx+1} ${nameById[e.pid]||e.pid} — ${e.deltaMs} ms</li>`).join('');
+    resultsBlock.innerHTML=`<h3>Totem caché — Top 5</h3><ol>${top||'<li>Aucun clic</li>'}</ol>`;
+  } else if(r.game==='I'){
+    resultsBlock.innerHTML=`<h3>Porte gagnante: ${r.winningDoor}</h3>`;
+  } else if(r.game==='G'){
+    const imposteurs=(r.impostorIds||[]).map((id)=>nameById[id]||id).join(', ');
+    resultsBlock.innerHTML=`<h3>Imposteurs révélés</h3><p>${imposteurs||'Aucun'}</p>`;
+  } else {
+    const pretty=JSON.stringify(r,(k,v)=>nameById[v]||v,2);
+    resultsBlock.innerHTML=`<h3>Résultats ${r.game||''}</h3><pre>${pretty}</pre>`;
+  }
+  resultsBlock.style.display='block';
+}
 
-      <section class="tv-status-box">
-        <div id="status" class="tv-status"></div>
-        <div class="room-lock-toggle">
-          <label>
-            <input id="roomLockToggle" type="checkbox" />
-            Fermer la salle (bloquer les nouveaux joueurs)
-          </label>
-        </div>
-        <div class="row" style="margin-top:.55rem;">
-          <button id="gameBuilderBtn" class="btn-cyan" type="button">Créer une GAME</button>
-        </div>
-
-        <div id="timerRing" class="timer-ring" style="display:none;">
-          <div class="timer-value">0</div>
-          <div class="timer-label">Timer</div>
-        </div>
-      </section>
-    </aside>
-
-    <!-- Centre -->
-    <section class="tv-center">
-      <!-- Buzzer -->
-      <section id="buzzerPanel" class="card" data-game-panel="buzzer">
-        <h2>Buzzer</h2>
-        <div class="row btn-row">
-          <button id="startRoundBtn" class="btn-green">Démarrer le tour</button>
-          <button id="resetRoundBtn">Réinitialiser le tour</button>
-        </div>
-      </section>
-
-      <!-- Quiz -->
-      <section id="quizPanel" class="card" style="display:none;" data-game-panel="quiz">
-        <h2>Quiz Vrai/Faux</h2>
-
-        <div class="card soft">
-          <h3 style="margin-top:0;">Banque de questions</h3>
-          <div class="row btn-row">
-            <button id="quizLoadBtn">Charger banque</button>
-            <span id="quizLoadedInfo" class="hint"></span>
-          </div>
-        </div>
-
-        <div class="field">
-          <label>Question</label>
-          <input id="quizQuestion" type="text" placeholder="Ex: Le Soleil est une étoile ?" />
-        </div>
-        <div class="row btn-row">
-          <label><input type="radio" name="quizCorrect" id="quizTrue" value="true" checked /> Vrai</label>
-          <label><input type="radio" name="quizCorrect" id="quizFalse" value="false" /> Faux</label>
-        </div>
-        <div class="row btn-row" style="flex-wrap:wrap;">
-          <div class="field" style="min-width:160px; max-width:220px;">
-            <label>Durée de réponse (secondes)</label>
-            <input id="quizSeconds" type="number" min="1" max="30" value="8" />
-            <div class="duration-presets" data-target="quizSeconds">
-              <button type="button" data-seconds="5">5s</button><button type="button" data-seconds="8">8s</button><button type="button" data-seconds="12">12s</button>
-            </div>
-          </div>
-          <div class="field" style="min-width:160px; max-width:220px;">
-            <label>Questions dans la série</label>
-            <input id="quizSeriesCount" type="number" min="1" max="50" value="10" />
-          </div>
-        </div>
-        <div class="row btn-row">
-          <button id="quizStartBtn" class="btn-green">Poser (3-2-1)</button>
-          <button id="quizRandomAskBtn" class="btn-cyan">Question aléatoire</button>
-          <button id="quizSeriesBtn" class="btn-cyan">Lancer une série</button>
-        </div>
-        <div id="quizInfo" class="row hint"></div>
-      </section>
-
-      <!-- Devine -->
-      <section id="guessPanel" class="card" style="display:none;" data-game-panel="guess">
-        <h2>Devine le nombre</h2>
-
-        <div class="card soft">
-          <h3 style="margin-top:0;">Banque</h3>
-          <div class="row btn-row">
-            <button id="guessLoadBtn">Charger banque</button>
-            <span id="guessLoadedInfo" class="hint"></span>
-          </div>
-        </div>
-
-        <div class="field">
-          <label>Question</label>
-          <input id="guessQuestion" type="text" placeholder="Ex: Combien font 7 x 8 ?" />
-        </div>
-        <div class="row btn-row" style="flex-wrap:wrap;">
-          <div class="field" style="min-width:140px;">
-            <label>Réponse correcte</label>
-            <input id="guessCorrect" type="number" value="56" />
-          </div>
-          <div class="field" style="min-width:140px;">
-            <label>Min</label>
-            <input id="guessMin" type="number" value="0" />
-          </div>
-          <div class="field" style="min-width:140px;">
-            <label>Max</label>
-            <input id="guessMax" type="number" value="100" />
-          </div>
-          <div class="field" style="min-width:160px; max-width:220px;">
-            <label>Durée de réponse (secondes)</label>
-            <input id="guessSeconds" type="number" min="1" max="60" value="10" />
-            <div class="duration-presets" data-target="guessSeconds">
-              <button type="button" data-seconds="8">8s</button><button type="button" data-seconds="12">12s</button><button type="button" data-seconds="20">20s</button>
-            </div>
-          </div>
-          <div class="field" style="min-width:160px; max-width:220px;">
-            <label>Questions dans la série</label>
-            <input id="guessSeriesCount" type="number" min="1" max="50" value="10" />
-          </div>
-        </div>
-        <div class="row btn-row">
-          <button id="guessStartBtn" class="btn-green">Poser (3-2-1)</button>
-          <button id="guessRandomAskBtn" class="btn-cyan">Question aléatoire</button>
-          <button id="guessSeriesBtn" class="btn-cyan">Lancer une série</button>
-        </div>
-        <div id="guessInfo" class="row hint"></div>
-
-        <div class="field">
-          <label>Répartition des réponses</label>
-          <div id="guessChart" class="chart"></div>
-          <div id="guessScale" class="chart-scale"><span>Min</span><span>Max</span></div>
-        </div>
-      </section>
-
-      <!-- Réponse libre -->
-      <section id="freePanel" class="card" style="display:none;" data-game-panel="free">
-        <h2>Réponse libre</h2>
-
-        <div class="card soft">
-          <h3 style="margin-top:0;">Banque</h3>
-          <div class="row btn-row">
-            <span class="hint">Banque chargée automatiquement.</span>
-            <span id="freeLoadedInfo" class="hint"></span>
-          </div>
-        </div>
-
-        <div class="field">
-          <label>Question</label>
-          <input id="freeQuestion" type="text" placeholder="Ex: Écris une définition drôle de 'internet'." />
-        </div>
-        <div class="row btn-row" style="flex-wrap:wrap;">
-          <div class="field" style="min-width:170px; max-width:240px;">
-            <label>Durée de réponse (secondes)</label>
-            <input id="freeSeconds" type="hidden" value="10" />
-            <div class="duration-presets choice-only" data-target="freeSeconds" data-choice-group="free-seconds">
-              <button type="button" class="is-selected" data-seconds="10">10s</button><button type="button" data-seconds="15">15s</button><button type="button" data-seconds="20">20s</button>
-            </div>
-          </div>
-          <div class="field" style="min-width:160px; max-width:220px;">
-            <label>Questions dans la série</label>
-            <input id="freeSeriesCount" type="hidden" value="20" />
-            <div class="duration-presets choice-only" data-target="freeSeriesCount" data-choice-group="free-count">
-              <button type="button" data-count="2">2 questions</button><button type="button" class="is-selected" data-count="20">20 questions</button><button type="button" data-count="30">30 questions</button>
-            </div>
-          </div>
-        </div>
-        <div class="row btn-row">
-          <button id="freeStartBtn" class="btn-green">Poser (3-2-1)</button>
-          <button id="freeRandomAskBtn" class="btn-cyan">Question aléatoire</button>
-          <button id="freeSeriesBtn" class="btn-cyan">Lancer une série</button>
-        </div>
-        <div id="freeInfo" class="row hint"></div>
-      </section>
-
-      <section id="mostPanel" class="card" style="display:none;" data-game-panel="most">
-        <h2>Qui est le plus...</h2>
-
-        <div class="card soft">
-          <h3 style="margin-top:0;">Banque de questions</h3>
-          <div class="row btn-row">
-            <button id="mostLoadBtn">Charger banque</button>
-            <span id="mostLoadedInfo" class="hint"></span>
-          </div>
-        </div>
-
-        <div class="field">
-          <label>Question</label>
-          <input id="mostQuestion" type="text" placeholder="Ex: Qui est le plus susceptible d'arriver en retard ?" />
-        </div>
-        <div class="field" style="max-width:220px;">
-          <label>Durée (secondes)</label>
-          <input id="mostSeconds" type="number" min="5" max="30" value="15" />
-        </div>
-        <div class="row btn-row">
-          <button id="mostStartBtn" class="btn-green">Lancer vote (15s)</button>
-          <button id="mostRandomAskBtn" class="btn-cyan">Question aléatoire</button>
-        </div>
-        <div id="mostInfo" class="row hint"></div>
-      </section>
-    </section>
-
-    <!-- Droite: Scores -->
-    <aside class="tv-right card">
-      <section class="tv-scores">
-        <h2>Scores</h2>
-        <ul id="players" class="score-list"></ul>
-        <div class="score-footer">
-          <button id="resetScoresBtn" class="btn-cyan">Réinitialiser scores</button>
-        </div>
-      </section>
-    </aside>
-  </main>
-
-  <!-- Overlays globaux -->
-  <div id="overlay" class="overlay" onclick="this.classList.remove('show')">
-    <div>
-      <div class="label">Gagnant</div>
-      <div id="winnerName" class="winner"></div>
-      <div class="hint">(cliquer pour fermer)</div>
-    </div>
-  </div>
-
-
-  <div id="resultsOverlay" class="overlay">
-    <div style="max-width:760px; width:92vw; text-align:left;">
-      <div class="label" style="text-align:center;">Résultats</div>
-      <div id="resultsTitle" class="question" style="font-size:1.4rem; text-align:center; margin-bottom:.8rem;"></div>
-      <div id="resultsBody" class="quiz-result-grid"></div>
-      <div style="text-align:center; margin-top:1rem;"><button id="resultsCloseBtn">Fermer</button></div>
-    </div>
-  </div>
-
-  <div id="countdown" class="overlay">
-    <div>
-      <div class="label">Début dans</div>
-      <div id="countNum" class="winner"></div>
-    </div>
-  </div>
-
-  <div id="quizQOverlay" class="overlay">
-    <button id="overlayStopBtn" class="overlay-stop" title="Arrêter l'auto‑play">✖</button>
-    <div>
-      <div class="label">Question</div>
-      <div id="quizQText" class="question"></div>
-      <div id="quizTimer" class="hint" style="margin-top:.8rem;"></div>
-      <div id="freeHint" class="hint" style="margin-top: .6rem; display:none;">Écrivez votre réponse sur votre téléphone</div>
-    </div>
-  </div>
-
-  <div id="freeResultsOverlay" class="overlay">
-    <div style="max-width: 1000px; width: 92vw; text-align: left;">
-      <div class="label" style="text-align:center;">Réponses</div>
-      <div id="freeResultsList" class="free-list"></div>
-      <div style="text-align:center; margin-top: 1rem;">
-        <button id="freeResultsCloseBtn">Fermer</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="freeReviewOverlay" class="overlay">
-    <div style="max-width: 1100px; width: 94vw;">
-      <div class="row" style="justify-content:space-between; align-items:center;">
-        <div class="label">Correction — <span id="freeReviewPosition">1/20</span></div>
-        <div class="btn-row">
-          <button id="freeReviewPrevBtn">Précédent</button>
-          <button id="freeReviewNextBtn" class="btn-green">Suivant</button>
-          <button id="freeReviewCloseBtn" class="btn-cyan">Terminer</button>
-        </div>
-      </div>
-      <div class="question" id="freeReviewQuestion" style="margin-top:.5rem; text-align:center;"></div>
-      <div id="freeReviewList" class="free-list" style="margin-top:.8rem;"></div>
-    </div>
-  </div>
-
-  <div id="mostPodiumOverlay" class="overlay">
-    <div style="max-width: 980px; width: 92vw;">
-      <div class="label">Résultat — Qui est le plus</div>
-      <div id="mostResultQuestion" class="question" style="font-size:2rem; margin-bottom:1rem;"></div>
-      <div id="mostPodium" class="most-podium"></div>
-      <div id="mostVotesMeta" class="hint" style="margin-top:1rem;"></div>
-      <div style="margin-top:1rem;"><button id="mostResultCloseBtn">Fermer</button></div>
-    </div>
-  </div>
-
-  <div id="gameBuilderOverlay" class="overlay">
-    <div class="game-builder-card">
-      <div class="row" style="justify-content:space-between; align-items:center;">
-        <div class="label">Créer une GAME</div>
-        <button id="gameBuilderCloseBtn" type="button">Fermer</button>
-      </div>
-      <p class="hint" style="margin-top:.2rem;">À gauche, sélectionne les jeux. À droite, personnalise les réglages.</p>
-
-      <div class="game-builder-layout">
-        <section class="game-builder-column">
-          <h3 class="game-builder-title">Jeux disponibles</h3>
-          <div id="gameBuilderList" class="game-builder-list"></div>
-        </section>
-
-        <section class="game-builder-column">
-          <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:.35rem;">
-            <h3 class="game-builder-title" style="margin:0;">Ma GAME</h3>
-            <div id="gameBuilderSummary" class="hint">Aucun jeu sélectionné</div>
-          </div>
-          <div id="gameBuilderConfig" class="game-builder-config"></div>
-        </section>
-      </div>
-
-      <div class="row btn-row" style="justify-content:flex-end; margin-top:.7rem;">
-        <button id="gameBuilderStartBtn" class="btn-green" type="button">Lancer la GAME</button>
-      </div>
-    </div>
-  </div>
-
-
-  <div id="gameShowStage" class="game-show-stage" aria-hidden="true">
-    <div class="game-show-host">🎤</div>
-    <div class="game-show-title">PLATEAU TV</div>
-    <div id="gameShowMode" class="game-show-mode">Mode GAME</div>
-    <div id="gameShowPhase" class="game-show-phase">Préparation</div>
-    <div id="gameShowQuestion" class="game-show-question">La question apparaîtra ici</div>
-  </div>
-
-
-  <div id="gameFlowTimer" class="game-flow-timer" aria-hidden="true" style="display:none;">
-    <div class="game-flow-timer-head">
-      <span id="gameFlowTimerPhase">Question</span>
-      <span id="gameFlowTimerValue">10s</span>
-    </div>
-    <div class="game-flow-timer-track">
-      <div id="gameFlowTimerFill" class="game-flow-timer-fill"></div>
-    </div>
-  </div>
-
-  <script src="/socket.io/socket.io.js"></script>
-  <script type="module" src="/js/tv-core.js"></script>
-  <script type="module" src="/js/tv-buzzer.js"></script>
-  <script type="module" src="/js/tv-quiz.js"></script>
-  <script type="module" src="/js/tv-guess.js"></script>
-  <script type="module" src="/js/tv-free.js"></script>
-  <script type="module" src="/js/tv-most.js"></script>
-  <script type="module" src="/js/tv-game.js"></script>
-</body>
-</html>
+socket.on('game:state',(s)=>{
+  bigQuestion.textContent=questionFor(s);
+  bigRule.textContent=rulesFor(s);
+  if(s.phase==='GAME_B'){ const idx=s.gameState?.stage==='REVIEW'?Number(s.gameState?.reviewIndex||0):Number(s.gameState?.currentIndex||0); const total=(s.gameState?.questions||[]).length||1; gameBQuestionIndex.style.display='block'; gameBQuestionIndex.textContent=`Question ${idx+1}/${total}`; } else { gameBQuestionIndex.style.display='none'; }
+  if(s.phase==='END'){
+    const top=(s.gameState?.finalRanking||s.rankings||[]).slice(0,3);
+    resultsBlock.style.display='block';
+    resultsBlock.innerHTML=`<h2>🏆 LE SURVIVANT DU FTOUR</h2><p>🥇 ${top[0]?.name||'-'} — ${top[0]?.score||0} pts</p><p>🥈 ${top[1]?.name||'-'} — ${top[1]?.score||0} pts</p><p>🥉 ${top[2]?.name||'-'} — ${top[2]?.score||0} pts</p>`;
+  }
+  bgMusic.muted=!!s.tvMuted;
+  if(!bgMusic.muted){ bgMusic.play().catch((e)=>reportAudioError(e?.message||'AUDIO_PLAY_BLOCKED')); }
+  startCountdown(s);
+  renderResults(s);
+  const answeredIds=(s.gameProgress?.answeredPlayerIds||s.gameAProgress?.answeredPlayerIds||[]);
+  scoreList.innerHTML=(s.rankings||[]).map(p=>`<li><span class='tv-player ${answeredIds.includes(p.playerId)?'answered':''}'><img class='tv-avatar' src='/${encodeURI(String(p.animal||'').replace(/\.png$/i,'.webp'))}' alt='Avatar' loading='lazy' decoding='async' onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src=this.src.replace(/\.webp$/i,'.png');}"/><span>${p.name} ${arrowsIcons(p)}</span></span><strong>${p.score}</strong></li>`).join('');
+});
+</script></body></html>
